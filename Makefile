@@ -1,5 +1,5 @@
 PROG =	xlt88
-OBJS = expr.o symbols.o state.o xlt88.o dialect.o norm8080.o osrecog.o trans.o emitter.o target.o nasm.o msdos.o cpm86.o
+OBJS = layout.o expr.o symbols.o state.o xlt88.o dialect.o norm8080.o osrecog.o trans.o emitter.o target.o nasm.o msdos.o cpm86.o
 PYTHON = python3
 
 all: ${PROG}
@@ -36,3 +36,6 @@ xlt88.o trans.o symbols.o state.o norm8080.o: symbols.h
 symbols.o state.o: dialect.h
 
 expr.o target.o nasm.o trans.o xlt88.o emitter.o msdos.o cpm86.o: expr.h
+
+layout.o: symbols.h dialect.h expr.h
+symbols.o state.o norm8080.o: expr.h

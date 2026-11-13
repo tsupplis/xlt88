@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory() as directory:
     # Reject stale input, duplicate names, changed EQU values, unknown schema,
     # invalid names, malformed JSON, duplicate fields and non-null addresses.
     malformed = ['{', '{}', '[]', 'null', 'true', '[' * 18 + ']' * 18, state.read_text() + 'x', '{"schema_version":1,"schema_version":1}']
-    for field, value in [('schema_version', 2), ('source_fingerprint', 'stale')]:
+    for field, value in [('schema_version', 99), ('source_fingerprint', 'stale')]:
         bad = json.loads(json.dumps(edited))
         bad[field] = value
         malformed.append(json.dumps(bad))
