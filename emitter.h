@@ -2,28 +2,19 @@
 #define emitter_h
 
 #include <stdio.h>
+#include "expr.h"
 
 typedef enum operand_kind {
 	operand_register, operand_interrupt, operand_immediate, operand_expression, operand_memory, operand_byte_memory, operand_branch, operand_internal_label
 } operand_kind_t;
 
-typedef enum expression_part_kind {
-	expression_text, expression_equ, expression_address, expression_and
-} expression_part_kind_t;
-
-typedef struct expression_part {
-	expression_part_kind_t kind;
-	char *text;
-} expression_part_t;
-
 typedef struct operand {
 	operand_kind_t kind;
 	const char *text;
 	long value;
-	const char *(*resolve)(void *, const char *, int *);
+	expr_resolve_t resolve;
 	void *symbols;
-	expression_part_t *parts;
-	size_t part_count;
+	expr_t *expression;
 } operand_t;
 
 typedef enum output_kind {

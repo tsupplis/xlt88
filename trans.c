@@ -80,11 +80,12 @@ is_label(const char *text)
 
 /* Resolve source names before the emitter applies assembler syntax. */
 static const char *
-canonical_name(void *context, const char *name, int *is_equ)
+canonical_name(void *context, const char *name, int *is_equ, size_t *id)
 {
 	const translation_t *ctx = context;
 	const symbol_t *symbol = symbol_find(ctx->symbols, name);
 	*is_equ = symbol != NULL && symbol->is_equ;
+	if (id) *id = symbol ? symbol->id : 0;
 	return symbol != NULL ? symbol->preferred : NULL;
 }
 
@@ -551,7 +552,7 @@ transfer(translation_t *ctx, int tail)
 			    value(operand_branch, offset), no_operand);
 		else {
 			int is_equ;
-			const char *name = canonical_name(ctx, destination, &is_equ);
+			const char *name = canonical_name(ctx, destination, &is_equ, NULL);
 			instruction(ctx->out, tail ? "jmp" : "call",
 			    operand(operand_branch, name != NULL ? name : destination), no_operand);
 		}
@@ -1114,7 +1115,8 @@ lower_named(const source_program_t *source, const symbol_table_t *symbols, const
 	emitter_t builder = target_builder(target);
 	int result = translate_program(source, symbols, backend, &builder, diagnostics);
 	if (target->failed) {
-		fputs("xlt88: cannot allocate target program\n", diagnostics);
+		fprintf(diagnostics, "xlt88: cannot build target program: %s\n",
+		    target->error ? target->error : "allocation failure");
 		return 1;
 	}
 	return result;

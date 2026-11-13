@@ -20,62 +20,6 @@ copy_text(const char *text)
 }
 
 static void
-copy_expression(target_program_t *program, operand_t *output, const operand_t *input)
-{
-	const char *text = input->text;
-	size_t capacity = strlen(text) + 1;
-
-	output->parts = calloc(capacity, sizeof(*output->parts));
-	if (!output->parts) {
-		program->failed = 1;
-		return;
-	}
-	while (*text) {
-		const char *start = text++;
-		const char *name = NULL;
-		int is_equ = 0;
-		expression_part_t *part = &output->parts[output->part_count++];
-
-		if (*start == '\'' || *start == '"') {
-			while (*text && *text++ != *start)
-				;
-		} else if (isalnum((unsigned char)*start) || strchr("_.$?@#", *start)) {
-			char token[256];
-			while (*text && (isalnum((unsigned char)*text) ||
-			    strchr("_.$?@#", *text)))
-				++text;
-			if ((size_t)(text - start) >= sizeof(token)) {
-				program->failed = 1;
-				return;
-			}
-			memcpy(token, start, text - start);
-			token[text - start] = '\0';
-			name = input->resolve(input->symbols, token, &is_equ);
-			if (!name && strlen(token) == 3 &&
-			    tolower((unsigned char)token[0]) == 'a' &&
-			    tolower((unsigned char)token[1]) == 'n' &&
-			    tolower((unsigned char)token[2]) == 'd')
-				part->kind = expression_and;
-		}
-		if (name) {
-			part->kind = is_equ ? expression_equ : expression_address;
-			part->text = copy_text(name);
-		} else {
-			size_t length = text - start;
-			part->text = malloc(length + 1);
-			if (part->text) {
-				memcpy(part->text, start, length);
-				part->text[length] = '\0';
-			}
-		}
-		if (!part->text) {
-			program->failed = 1;
-			return;
-		}
-	}
-}
-
-static void
 append_event(void *context, const output_t *event)
 {
 	target_program_t *program = context;
@@ -108,8 +52,15 @@ append_event(void *context, const output_t *event)
 		dest->text = copy_text(source->text);
 		if (source->text && !dest->text)
 			program->failed = 1;
-		if (source->resolve)
-			copy_expression(program, dest, source);
+		if (source->resolve) {
+			const char *error;
+			dest->expression = expr_parse(source->text, source->resolve, source->symbols,
+			    event->kind == output_data_bytes || event->kind == output_data_words, &error);
+			if (!dest->expression) {
+				program->failed = 1;
+				program->error = error;
+			}
+		}
 	}
 }
 
@@ -135,7 +86,7 @@ target_write(const target_program_t *program, const emitter_t *emitter)
 void
 target_destroy(target_program_t *program)
 {
-	size_t i, j, k;
+	size_t i, j;
 
 	for (i = 0; i < program->count; ++i) {
 		output_t *event = &program->events[i];
@@ -143,9 +94,7 @@ target_destroy(target_program_t *program)
 		for (j = 0; j < 2; ++j) {
 			operand_t *operand = &event->operands[j];
 			free((void *)operand->text);
-			for (k = 0; k < operand->part_count; ++k)
-				free(operand->parts[k].text);
-			free(operand->parts);
+			expr_destroy(operand->expression);
 		}
 	}
 	free(program->events);

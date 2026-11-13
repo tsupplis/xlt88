@@ -9,6 +9,7 @@ typedef struct target_program {
 	size_t count;
 	size_t capacity;
 	int failed;
+	const char *error;
 } target_program_t;
 
 emitter_t target_builder(target_program_t *);

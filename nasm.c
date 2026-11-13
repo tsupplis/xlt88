@@ -4,19 +4,40 @@
 #include "emitter.h"
 
 static void
+write_expr(FILE *out, const expr_t *tree)
+{
+	static const char *const operators[] = { "+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", "~" };
+	switch (tree->kind) {
+	case expr_integer: case expr_string: fputs(tree->text, out); break;
+	case expr_location: fputs("($ - $$ + 100h)", out); break;
+	case expr_symbol:
+		if (tree->is_equ) fprintf(out, "$%s", tree->text);
+		else fprintf(out, "($%s - $$ + 100h)", tree->text);
+		break;
+	case expr_unary:
+		fprintf(out, "(%s", operators[tree->op]);
+		write_expr(out, tree->left);
+		fputc(')', out);
+		break;
+	case expr_binary:
+		fputc('(', out);
+		write_expr(out, tree->left);
+		fprintf(out, " %s ", operators[tree->op]);
+		write_expr(out, tree->right);
+		fputc(')', out);
+		break;
+	case expr_list:
+		write_expr(out, tree->left);
+		fputc(',', out);
+		write_expr(out, tree->right);
+		break;
+	}
+}
+
+static void
 expression(FILE *out, const operand_t *operand)
 {
-	size_t i;
-
-	for (i = 0; i < operand->part_count; ++i) {
-		const expression_part_t *part = &operand->parts[i];
-		switch (part->kind) {
-		case expression_text: fputs(part->text, out); break;
-		case expression_equ: fprintf(out, "$%s", part->text); break;
-		case expression_address: fprintf(out, "($%s - $$ + 100h)", part->text); break;
-		case expression_and: fputc('&', out); break;
-		}
-	}
+	write_expr(out, operand->expression);
 }
 
 static void
@@ -42,7 +63,7 @@ write_operand(FILE *out, const operand_t *value)
 	case operand_byte_memory:
 	case operand_memory:
 		fputs(value->kind == operand_byte_memory ? "byte [" : "[", out);
-		if (value->parts)
+		if (value->expression)
 			expression(out, value);
 		else
 			fputs(value->text, out);
