@@ -4,3 +4,4 @@
 out.asm
 /xlt88
 /*.o
+/tests/iface

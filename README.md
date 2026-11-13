@@ -20,6 +20,37 @@ For CP/M-86, use the default base-page insertion in the cpm86-cmdtools
 `bin2cmd` utility to package a single-code-group, 8080-model CMD.
 Both listings use origin 100h and start with the translated source.
 
+## Editable symbol names
+
+```sh
+./xlt88 --state-out=names.sym source.asm dos.asm
+# Edit only preferred_name fields in names.sym (JSON content).
+./xlt88 --state-in=names.sym --state-out=names.sym source.asm dos.asm
+./xlt88 --state-in=names.sym --emit=8080 source.asm named.asm
+./xlt88 --state-in=names.sym --target=cpm86 source.asm cpm.asm
+```
+
+`symbols.c` builds one shared source symbol table; `state.c` reads and writes
+version 1 state. The same table supplies definitions and expression names to
+both emitters. EQU expressions remain authoritative in the source. IDs are
+stable for an unchanged parsed source and scoped to its fingerprint. Changed
+source requires a fresh state export; automatic merging is not yet supported.
+
+State retains original names, preferred names, definition lines, EQU text and
+resolvable simple EQU values. Source and generated addresses are currently
+`null`; address import and layout are not implemented. Keep all fields except
+`preferred_name` unchanged, including symbol array order. New preferred names
+use letters, digits and underscores, start with a letter or underscore, and
+contain at least two characters. Register names and expression operators are
+reserved. Names are checked for duplicates without regard to case.
+
+Each output is staged and replaced after successful generation. Validation
+failures leave existing output files intact. Assembly and state are separate
+file replacements, not a two-file transaction: a filesystem failure during the
+second replacement can leave assembly updated with the previous state intact.
+Source, assembly and state paths must be distinct; state input and output may
+be the same file. Temporary filenames also fit 8.3.
+
 ## OS calls
 
 The backend emits the native instruction sequence at each recognized
@@ -32,6 +63,8 @@ so it requires a source edit before automatic translation.
 | Source operation | DOS 1.0 | CP/M-86 1.1 |
 | --- | --- | --- |
 | BDOS 1, 2, 9 | Set AH to the service number and use INT 21h | INT E0h with CL already set, saving and restoring ES |
+| BDOS 12 | Manual port | Return the native BDOS version |
+| BDOS 25, 26 | Get current drive and set DTA | Get current drive and set DMA offset |
 | Transfer to 0, RST 0, or BDOS 0 | INT 20h | INT E0h with CL and DL set to zero |
 
 Other BDOS services, including FCB I/O, and ambiguous service numbers
@@ -63,21 +96,35 @@ names such as `CPU` can coexist with NASM keywords.
 
 ## Code and tests
 
-`xlt88.c` handles instruction translation and symbol resolution. Each
-opcode handler takes the current translation context, which owns the
-statement, output, symbol table, diagnostics, and selected backend.
-`dialect.h` defines the parsed statement interface and `dialect.c`
-implements Intel syntax. The translator takes a backend and a dialect
-independently. `msdos.c` and `cpm86.c` emit native OS instructions
-through the interface in `backend.h`.
+The driver in `xlt88.c` selects dependencies and owns streams. The pipeline is:
 
-Run `make test` with NASM, emu2, and bin2cmd on PATH. The script accepts
+- `dialect.c`: Intel parsing into an owned `source_program_t`.
+- `norm8080.c`: optional 8080 source serialization (`--emit=8080`).
+- `osrecog.c`: conservative tracking of the BDOS function argument.
+- `symbols.c` and `state.c`: shared symbols and editable state.
+- `trans.c`: CPU lowering with the injected `backend_t`.
+- `msdos.c` and `cpm86.c`: native OS sequences.
+- `target.c`: an owned `target_program_t`, independent of source lifetime.
+- `nasm.c`: assembler formatting through an injected `emitter_t`.
+
+`lower_8080` borrows the source and returns a separately owned target program.
+The caller can lower the same source for both OS targets, destroy the source,
+and replay either target to different emitters. Call `source_destroy` and
+`target_destroy` for their respective programs, including on failure.
+
+See [design.md](design.md) for the full architecture and remaining migration
+work. Editable symbol-state files are available; typed source expressions remain pending.
+Additional input dialects and assembler flavors are not implemented yet.
+
+Run `make test` with NASM, emu2, bin2cmd, and Python 3 on PATH. The script accepts
 `EMU2` and `BIN2CMD` overrides. It checks both Hello World binaries,
 the generated native calls, diagnostics, exact packed and aligned data,
 the 8080 auxiliary carry produced by ANA and ANI through PSW and DAA,
 and the Microcosm diagnostic translated from `examples/tst8080.asm`
 for each target.
 It also runs both native FCB copy examples across a 128-record boundary.
+The arithmetic suite compares translated execution against an 8080
+reference model and reports counts by instruction and operand form.
 
 `make test` checks that the assembled fixtures collectively cover every
 8080 mnemonic in the translator table (78 of 78 today). The hardware
@@ -91,7 +138,7 @@ effects require separate tests.
 
 ```sh
 nasm -f bin examples/copy-dos.asm -o xcopy.com
-nasm -f bin examples/copy-cpm86.asm -o xcopy.bin
+nasm -f bin examples/copycpm.asm -o xcopy.bin
 bin2cmd xcopy.bin xcopy.cmd
 ```
 
@@ -105,3 +152,6 @@ buffers. The DOS port sets the DTA and handles DOS status 3. The CP/M-86
 port sets the DMA address and preserves ES around each returning BDOS
 call. Automatic FCB translation still requires a way to establish that
 the source uses FCB fields and read statuses compatible with its target.
+
+See [native API coverage](API.md) for the BDOS 2.2 call inventory and
+DOS 1.00 porting requirements.

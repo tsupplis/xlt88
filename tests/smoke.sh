@@ -6,6 +6,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 bin2cmd=${BIN2CMD:-bin2cmd}
 emu2=${EMU2:-emu2}
+export EMU2_DOSVER=1.0 EMU2_CPM_VER=2.2
 
 cd "$tmp"
 cp "$root/examples/hello.asm" source.80
@@ -34,8 +35,50 @@ for target in msdos cpm86; do
     "$emu2" "$program" > hello.out
     grep -F 'Hello, world from Assembler!' hello.out
 
-    "$root/xlt88" --target="$target" "$root/tests/and-flags.asm" and-flags.asm
-    nasm -f bin and-flags.asm -o and-flags.com
+    cat > api.80 <<'ASM'
+        org 100h
+        lxi d, buffer
+        mvi c, 26
+        call 5
+        mvi c, 25
+        call 5
+        cmp l
+        jnz failed
+        lxi d, okay
+        jmp print
+failed: lxi d, error
+print:  mvi c, 9
+        call 5
+        jmp 0
+buffer: ds 128
+okay:   db 'API OK$'
+error:  db 'API FAILED$'
+        end
+ASM
+    if [ "$target" = cpm86 ]; then
+        sed '2i\
+        mvi c, 12\
+        call 5\
+        cpi 22h\
+        jnz failed\
+        mov a, l\
+        cpi 22h\
+        jnz failed
+' api.80 > version.80
+        mv version.80 api.80
+    fi
+    "$root/xlt88" --target="$target" api.80 api.asm
+    nasm -Werror -f bin api.asm -o api.com
+    program=api.com
+    if [ "$target" = cpm86 ]; then
+        "$bin2cmd" api.com api.cmd
+        program=api.cmd
+    fi
+    "$emu2" "$program" > api.out
+    grep -F 'API OK' api.out
+
+    "$root/xlt88" --target="$target" "$root/tests/andflags.asm" andflags.asm
+    nasm -f bin andflags.asm -o and-flags.com
     if [ "$target" = cpm86 ]; then
         "$bin2cmd" and-flags.com and-flags.cmd
         "$emu2" and-flags.cmd > and-flags.out
@@ -58,7 +101,7 @@ for target in msdos cpm86; do
         exit 1
     fi
 
-    "$root/xlt88" --target="$target" "$root/tests/remaining-opcodes.asm" remaining.asm
+    "$root/xlt88" --target="$target" "$root/tests/opcodes.asm" remaining.asm
     nasm -Werror -f bin remaining.asm -o remaining.com
     program=remaining.com
     if [ "$target" = cpm86 ]; then
@@ -170,7 +213,7 @@ mkdir dos cpm86
 )
 (
     cd cpm86
-    nasm -f bin "$root/examples/copy-cpm86.asm" -o xcopy.bin
+    nasm -f bin "$root/examples/copycpm.asm" -o xcopy.bin
     "$bin2cmd" xcopy.bin xcopy.cmd
     test_copy xcopy.cmd
 )
