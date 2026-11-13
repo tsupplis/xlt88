@@ -1,14 +1,18 @@
 #include "backend.h"
 
 static void
-exit_program(FILE *out)
+exit_program(const emitter_t *out)
 {
-	fputs("mov cl, 0 ; CP/M-86 terminate program\n"
-	    "\tmov dl, 0\n\tint 0E0h", out);
+	instruction(out, "mov", operand(operand_register, "cl"), value(operand_immediate, 0));
+	emit(out, output_comment, "CP/M-86 terminate program", no_operand, no_operand);
+	emit(out, output_line_end, NULL, no_operand, no_operand);
+	instruction(out, "mov", operand(operand_register, "dl"), value(operand_immediate, 0));
+	emit(out, output_line_end, NULL, no_operand, no_operand);
+	instruction(out, "int", value(operand_interrupt, 0xe0), no_operand);
 }
 
 static int
-bdos(FILE *out, long function)
+bdos(const emitter_t *out, long function)
 {
 	const char *service;
 
@@ -22,23 +26,40 @@ bdos(FILE *out, long function)
 	case 9:
 		service = "print dollar-terminated string at DS:DX";
 		break;
+	case 12:
+		service = "get BDOS version";
+		break;
+	case 25:
+		service = "get current drive";
+		break;
+	case 26:
+		service = "set DMA offset from DX";
+		break;
 	default:
 		return 0;
 	}
 
 	/* These services have no ES result. Keep the caller's segment. */
-	fprintf(out, "push es ; CP/M-86 BDOS %ld, %s\n"
-	    "\tint 0E0h\n\tpop es", function, service);
+	instruction(out, "push", operand(operand_register, "es"), no_operand);
+	emit(out, output_comment, service, no_operand, no_operand);
+	emit(out, output_line_end, NULL, no_operand, no_operand);
+	instruction(out, "int", value(operand_interrupt, 0xe0), no_operand);
+	emit(out, output_line_end, NULL, no_operand, no_operand);
+	instruction(out, "pop", operand(operand_register, "es"), no_operand);
 	return 1;
 }
 
 static void
-stack_segment(FILE *out)
+stack_segment(const emitter_t *out)
 {
 	/* The loader can leave SS pointing into the CCP. An 8080 program
 	 * that chooses SP expects its stack in the data segment. MOV SS
 	 * defers interrupts through the following MOV SP. */
-	fputs("mov si, ds ; select program stack segment\n\tmov ss, si\n\t", out);
+	instruction(out, "mov", operand(operand_register, "si"), operand(operand_register, "ds"));
+	emit(out, output_comment, "select program stack segment", no_operand, no_operand);
+	emit(out, output_line_end, NULL, no_operand, no_operand);
+	instruction(out, "mov", operand(operand_register, "ss"), operand(operand_register, "si"));
+	emit(out, output_line_end, NULL, no_operand, no_operand);
 }
 
-const struct backend cpm86_backend = { "cpm86", bdos, exit_program, stack_segment };
+const backend_t cpm86_backend = { "cpm86", bdos, exit_program, stack_segment };

@@ -1,19 +1,36 @@
 PROG =	xlt88
-OBJS =	xlt88.o msdos.o cpm86.o dialect.o
+OBJS = symbols.o state.o xlt88.o dialect.o norm8080.o osrecog.o trans.o emitter.o target.o nasm.o msdos.o cpm86.o
+PYTHON = python3
 
 all: ${PROG}
 
 ${PROG}: ${OBJS}
 	${CC} ${LDFLAGS} -o ${PROG} ${OBJS}
 
-xlt88.o msdos.o cpm86.o: backend.h
-xlt88.o dialect.o: dialect.h
+xlt88.o trans.o msdos.o cpm86.o: backend.h
+
+xlt88.o trans.o: trans.h
+
+xlt88.o trans.o emitter.o target.o nasm.o msdos.o cpm86.o: emitter.h
+xlt88.o trans.o dialect.o norm8080.o osrecog.o: dialect.h
+trans.o osrecog.o: osrecog.h
 
 clean:
-	rm -f ${PROG} ${OBJS}
+	rm -f ${PROG} ${OBJS} tests/iface
 
-test: ${PROG}
-	sh tests/mnemonic-coverage.sh
+tests/iface: tests/iface.c ${OBJS}
+	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/iface.c $(filter-out xlt88.o,${OBJS})
+
+test: ${PROG} tests/iface
+	./tests/iface
+	sh tests/coverage.sh
 	sh tests/smoke.sh
+	${PYTHON} tests/arith.py
+	${PYTHON} tests/state.py
 
 .PHONY: all clean test
+
+xlt88.o target.o: target.h
+
+xlt88.o trans.o symbols.o state.o norm8080.o: symbols.h
+symbols.o state.o: dialect.h

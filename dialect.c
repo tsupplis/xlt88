@@ -1,5 +1,6 @@
 #include <ctype.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "dialect.h"
 
@@ -19,7 +20,7 @@ copy_token(char *dest, const char *begin, const char *end)
 }
 
 static const char *
-parse_intel(const char *line, struct statement *stmt)
+parse_intel(const char *line, statement_t *stmt)
 {
 	const char *start, *p = line, *comma = NULL;
 	char quote = '\0';
@@ -77,4 +78,49 @@ parse_intel(const char *line, struct statement *stmt)
 	return NULL;
 }
 
-const struct dialect intel_dialect = { "intel", parse_intel };
+static int
+read_intel(FILE *in, source_program_t *program)
+{
+	char line[256];
+	size_t capacity = 0;
+
+	while (fgets(line, sizeof(line), in) != NULL) {
+		source_record_t *record;
+		const char *problem;
+		size_t length = strlen(line);
+
+		if (program->count == capacity) {
+			size_t next = capacity ? capacity * 2 : 32;
+			void *records = realloc(program->records, next * sizeof(*record));
+			if (records == NULL)
+				return 0;
+			program->records = records;
+			capacity = next;
+		}
+		record = &program->records[program->count];
+		memset(record, 0, sizeof(*record));
+		record->line = ++program->count;
+		if (length == sizeof(line) - 1 && line[length - 1] != '\n') {
+			int ch;
+			while ((ch = fgetc(in)) != EOF && ch != '\n')
+				;
+			problem = "source line exceeds 254 characters";
+		} else {
+			line[strcspn(line, "\r\n")] = '\0';
+			problem = parse_intel(line, &record->statement);
+		}
+		record->problem = problem;
+		if (!problem && !strcmp(record->statement.opcode, "end"))
+			break;
+	}
+	return !ferror(in);
+}
+
+const dialect_t intel_dialect = { "intel", read_intel };
+
+void
+source_destroy(source_program_t *program)
+{
+	free(program->records);
+	memset(program, 0, sizeof(*program));
+}

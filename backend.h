@@ -1,17 +1,17 @@
-#ifndef BACKEND_H
-#define BACKEND_H
+#ifndef backend_h
+#define backend_h
 
-#include <stdio.h>
+#include "emitter.h"
 
-struct backend {
+typedef struct backend {
 	const char *name;
 	/* Return zero when the service has no direct translation. */
-	int (*bdos)(FILE *out, long function);
-	void (*exit_program)(FILE *out);
-	void (*stack_segment)(FILE *out);
-};
+	int (*bdos)(const emitter_t *, long function);
+	void (*exit_program)(const emitter_t *);
+	void (*stack_segment)(const emitter_t *);
+} backend_t;
 
-extern const struct backend msdos_backend;
-extern const struct backend cpm86_backend;
+extern const backend_t msdos_backend;
+extern const backend_t cpm86_backend;
 
 #endif
