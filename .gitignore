@@ -2,3 +2,5 @@
 8088ify.core
 8088ify.o
 out.asm
+/xlt88
+/*.o

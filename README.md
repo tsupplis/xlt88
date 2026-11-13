@@ -79,6 +79,14 @@ and the Microcosm diagnostic translated from `examples/tst8080.asm`
 for each target.
 It also runs both native FCB copy examples across a 128-record boundary.
 
+`make test` checks that the assembled fixtures collectively cover every
+8080 mnemonic in the translator table (78 of 78 today). The hardware
+instruction fixture checks the emitted bytes for `DI`, `EI`, `HLT`,
+`IN`, and `OUT`. It runs `NOP` followed by `RST 0` on both targets
+and separately checks rejection of `RST 1` through `RST 7`. This is
+mnemonic coverage. Operand forms, flag combinations, and hardware side
+effects require separate tests.
+
 ## Native FCB copy examples
 
 ```sh

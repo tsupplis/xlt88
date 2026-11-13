@@ -2,16 +2,16 @@
 	org	100h
 bdos	equ	0005h	; BDOS entry point
 start:	lxi	h,msg	; address of msg
-loop2:	mvi	c,02h	; BDOS function: output character
-	mov	e, m	; Load character
+loop2:	mov	e, m	; Load character
 	push	h	; H gets clobbered by bdos call
+	mvi	c,02h	; BDOS function: output character
 	call	bdos	; Print
 	pop	h	; Restore H
 	inx	h	; Increment address
 	mov	a, e	; Is the character we just printed 0ah?
 	cpi	0ah
 	jnz	loop2	; Go again if not
-	ret
+	jmp	0	; CP/M warm boot
 msg:	db	'Hello, world from Assembler!'
 	db	0dh
 	db	0ah
