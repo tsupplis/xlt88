@@ -52,7 +52,7 @@ word(const char *text, const char *name)
 	size_t i;
 	for (i = 0; name[i]; ++i)
 		if (tolower((unsigned char)text[i]) != name[i]) return 0;
-	return !isalnum((unsigned char)text[i]) && !strchr("_.$?@#", text[i]);
+	return !text[i] || (!isalnum((unsigned char)text[i]) && !strchr("_.$?@#", text[i]));
 }
 
 static int
@@ -123,6 +123,9 @@ parse_atom(expr_parser_t *parser)
 			int base = 10, suffix = 0;
 			if (tolower((unsigned char)raw[length - 1]) == 'h') { base = 16; suffix = 1; }
 			else if (length > 2 && raw[0] == '0' && tolower((unsigned char)raw[1]) == 'x') base = 16;
+			else if (tolower((unsigned char)raw[length - 1]) == 'b') { base = 2; suffix = 1; }
+			else if (tolower((unsigned char)raw[length - 1]) == 'd') { base = 10; suffix = 1; }
+			else if (tolower((unsigned char)raw[length - 1]) == 'o' || tolower((unsigned char)raw[length - 1]) == 'q') { base = 8; suffix = 1; }
 			errno = 0;
 			tree->integer = strtol(raw, &end, base);
 			if (errno || end != raw + length - suffix) parser->error = "invalid or overflowing integer";
@@ -132,7 +135,7 @@ parse_atom(expr_parser_t *parser)
 			if (name) {
 				tree->text = copy_span(name, strlen(name));
 				free(raw);
-			}
+			} else parser->error = "undefined expression symbol";
 		}
 	} else parser->error = "expected expression operand";
 	if (tree && (tree->kind == expr_integer || tree->kind == expr_string || tree->kind == expr_symbol || tree->kind == expr_location) && !tree->text)
@@ -167,6 +170,20 @@ parse_binary(expr_parser_t *parser, int minimum)
 	return left;
 }
 
+static int
+valid_arithmetic(const expr_t *tree)
+{
+	long a, b, value;
+	if (!tree) return 1;
+	if (!valid_arithmetic(tree->left) || !valid_arithmetic(tree->right)) return 0;
+	if (tree->kind == expr_binary && expr_eval(tree->left, NULL, NULL, -1, &a) &&
+	    expr_eval(tree->right, NULL, NULL, -1, &b))
+		return expr_eval(tree, NULL, NULL, -1, &value);
+	if (tree->kind == expr_unary && expr_eval(tree->left, NULL, NULL, -1, &a))
+		return expr_eval(tree, NULL, NULL, -1, &value);
+	return 1;
+}
+
 expr_t *
 expr_parse(const char *text, expr_resolve_t resolve, void *context, int list,
     const char **error)
@@ -183,6 +200,7 @@ expr_parse(const char *text, expr_resolve_t resolve, void *context, int list,
 	}
 	skip_space(&parser);
 	if (!parser.error && *parser.cursor) parser.error = "unsupported expression operator or trailing text";
+	if (!parser.error && !valid_arithmetic(tree)) parser.error = "invalid constant arithmetic or overflow";
 	if (parser.error) { expr_destroy(tree); tree = NULL; }
 	if (error) *error = parser.error;
 	return tree;

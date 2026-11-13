@@ -15,6 +15,7 @@ typedef struct operand {
 	expr_resolve_t resolve;
 	void *symbols;
 	expr_t *expression;
+	unsigned long source_line;
 } operand_t;
 
 typedef enum output_kind {

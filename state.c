@@ -130,9 +130,15 @@ parse_value(json_reader_t *reader, unsigned depth)
 			if (reader->ch != *tail++) goto invalid;
 			advance(reader);
 		}
-	} else if (ch >= '0' && ch <= '9') {
+	} else if (ch == '-' || (ch >= '0' && ch <= '9')) {
 		reader->tokens[index].kind = '0';
 		reader->tokens[index].text[used++] = (char)ch;
+		if (ch == '-') {
+			ch = reader->ch;
+			if (ch < '0' || ch > '9') goto invalid;
+			reader->tokens[index].text[used++] = (char)ch;
+			advance(reader);
+		}
 		while (reader->ch >= '0' && reader->ch <= '9') {
 			if (ch == '0' || used >= 20) goto invalid;
 			reader->tokens[index].text[used++] = (char)reader->ch;
@@ -187,18 +193,22 @@ int
 symbols_write(const symbol_table_t *table, FILE *out)
 {
 	size_t i;
-	fprintf(out, "{\n  \"schema_version\": 1,\n  \"source_fingerprint\": \"%016" PRIx64 "\",\n  \"symbols\": [\n", table->fingerprint);
+	fprintf(out, "{\n  \"schema_version\": 2,\n  \"source_fingerprint\": \"%016" PRIx64 "\",\n  \"symbols\": [\n", table->fingerprint);
 	for (i = 0; i < table->count; ++i) {
 		const symbol_t *item = &table->items[i];
-		long value = item->is_equ ? symbol_value(table, item->name) : -1;
+		long value = 0;
+		int known = item->is_equ && symbols_eval(table, item->name, -1, &value);
 		fprintf(out, "    {\"id\": %zu, \"original_name\": ", item->id);
 		quote(out, item->name);
 		fputs(", \"preferred_name\": ", out); quote(out, item->preferred);
 		fprintf(out, ", \"kind\": \"%s\", \"definition\": %lu, \"equ_expression\": ", item->is_equ ? "equ" : "label", item->line);
 		if (item->is_equ) quote(out, item->value); else fputs("null", out);
 		fputs(", \"equ_value\": ", out);
-		if (value >= 0) fprintf(out, "%ld", value); else fputs("null", out);
-		fprintf(out, ", \"source_address\": null, \"generated_address\": null}%s\n", i + 1 < table->count ? "," : "");
+		if (known) fprintf(out, "%ld", value); else fputs("null", out);
+		fputs(", \"source_address\": ", out);
+		if (item->source_address >= 0) fprintf(out, "%ld", item->source_address);
+		else fputs("null", out);
+		fprintf(out, ", \"generated_address\": null}%s\n", i + 1 < table->count ? "," : "");
 	}
 	fputs("  ]\n}\n", out);
 	return !ferror(out);
@@ -214,7 +224,7 @@ symbols_read(symbol_table_t *table, FILE *input, FILE *diagnostics)
 	size_t root[3], entry[9], i, seen = 0;
 	char fingerprint[32];
 	symbol_table_t candidate = *table;
-	int result = 0;
+	int result = 0, legacy;
 	candidate.items = calloc(table->count ? table->count : 1, sizeof(*table->items));
 	if (!candidate.items) return 0;
 	memcpy(candidate.items, table->items, table->count * sizeof(*table->items));
@@ -225,12 +235,14 @@ symbols_read(symbol_table_t *table, FILE *input, FILE *diagnostics)
 	if (reader.failed || reader.ch != EOF || ferror(input) ||
 	    !fields(tokens, 0, root_names, 3, root)) goto invalid;
 	snprintf(fingerprint, sizeof(fingerprint), "%016" PRIx64, table->fingerprint);
-	if (!matches(&tokens[root[0]], '0', "1") ||
+	legacy = matches(&tokens[root[0]], '0', "1");
+	if ((!legacy && !matches(&tokens[root[0]], '0', "2")) ||
 	    !matches(&tokens[root[1]], '"', fingerprint) || tokens[root[2]].kind != '[') goto invalid;
 	for (i = root[2] + 1; i < tokens[root[2]].next; i = tokens[i].next) {
 		symbol_t *item;
 		char number[32];
 		long value;
+		int known;
 		if (seen >= table->count || !fields(tokens, i, entry_names, 9, entry)) goto invalid;
 		item = &candidate.items[seen++];
 		snprintf(number, sizeof(number), "%zu", item->id);
@@ -240,10 +252,17 @@ symbols_read(symbol_table_t *table, FILE *input, FILE *diagnostics)
 		snprintf(number, sizeof(number), "%lu", item->line);
 		if (!matches(&tokens[entry[4]], '0', number) ||
 		    !matches(&tokens[entry[5]], item->is_equ ? '"' : 'n', item->is_equ ? item->value : "")) goto invalid;
-		value = item->is_equ ? symbol_value(table, item->name) : -1;
+		value = 0;
+		if (legacy) {
+			value = item->is_equ ? symbol_value(table, item->name) : -1;
+			known = value >= 0;
+		} else known = item->is_equ && symbols_eval(table, item->name, -1, &value);
 		snprintf(number, sizeof(number), "%ld", value);
-		if (!matches(&tokens[entry[6]], value >= 0 ? '0' : 'n', value >= 0 ? number : "") ||
-		    tokens[entry[7]].kind != 'n' || tokens[entry[8]].kind != 'n') goto invalid;
+		if (!matches(&tokens[entry[6]], known ? '0' : 'n', known ? number : "") ||
+		    tokens[entry[8]].kind != 'n') goto invalid;
+		snprintf(number, sizeof(number), "%ld", item->source_address);
+		known = !legacy && item->source_address >= 0;
+		if (!matches(&tokens[entry[7]], known ? '0' : 'n', known ? number : "")) goto invalid;
 		strcpy(item->preferred, tokens[entry[2]].text);
 	}
 	if (seen != table->count || !symbols_validate(&candidate, diagnostics)) goto invalid;

@@ -49,6 +49,7 @@ append_event(void *context, const output_t *event)
 		const operand_t *source = &event->operands[i];
 		dest->kind = source->kind;
 		dest->value = source->value;
+		dest->source_line = source->source_line;
 		dest->text = copy_text(source->text);
 		if (source->text && !dest->text)
 			program->failed = 1;
@@ -59,6 +60,7 @@ append_event(void *context, const output_t *event)
 			if (!dest->expression) {
 				program->failed = 1;
 				program->error = error;
+				program->error_line = source->source_line;
 			}
 		}
 	}

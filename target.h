@@ -10,6 +10,7 @@ typedef struct target_program {
 	size_t capacity;
 	int failed;
 	const char *error;
+	unsigned long error_line;
 } target_program_t;
 
 emitter_t target_builder(target_program_t *);

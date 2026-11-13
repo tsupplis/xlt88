@@ -101,6 +101,7 @@ expr(translation_t *ctx, const char *text)
 	operand_t operand = operand(operand_expression, text);
 	operand.resolve = canonical_name;
 	operand.symbols = ctx;
+	operand.source_line = ctx->source_line;
 	return operand;
 }
 
@@ -547,9 +548,24 @@ transfer(translation_t *ctx, int tail)
 		}
 		break;
 	default:
-		if (offset >= 0)
-			instruction(ctx->out, tail ? "jmp" : "call",
-			    value(operand_branch, offset), no_operand);
+		if (offset >= 0) {
+			const symbol_t *binding = NULL;
+			size_t i;
+			int ambiguous = 0;
+			for (i = 0; i < ctx->symbols->count; ++i) {
+				const symbol_t *item = &ctx->symbols->items[i];
+				if (!item->is_equ && item->source_address == offset) {
+					if (binding) ambiguous = 1;
+					binding = item;
+				}
+			}
+			if (ambiguous) {
+				diagnose(ctx, "numeric transfer matches multiple labels; use a source name: ", ctx->statement.first);
+				return;
+			}
+			instruction(ctx->out, tail ? "jmp" : "call", binding ?
+			    operand(operand_branch, binding->preferred) : value(operand_branch, offset), no_operand);
+		}
 		else {
 			int is_equ;
 			const char *name = canonical_name(ctx, destination, &is_equ, NULL);
@@ -1115,8 +1131,8 @@ lower_named(const source_program_t *source, const symbol_table_t *symbols, const
 	emitter_t builder = target_builder(target);
 	int result = translate_program(source, symbols, backend, &builder, diagnostics);
 	if (target->failed) {
-		fprintf(diagnostics, "xlt88: cannot build target program: %s\n",
-		    target->error ? target->error : "allocation failure");
+		fprintf(diagnostics, "xlt88:%lu: cannot build target program: %s\n",
+		    target->error_line, target->error ? target->error : "allocation failure");
 		return 1;
 	}
 	return result;
