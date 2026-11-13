@@ -2,6 +2,7 @@
 #define symbols_h
 
 #include "dialect.h"
+#include "expr.h"
 #include <stdint.h>
 
 typedef size_t symbol_id_t;
@@ -12,6 +13,9 @@ typedef struct symbol {
 	char value[256];
 	int is_equ;
 	unsigned long line;
+	long source_address;
+	long definition_address;
+	expr_t *expression;
 } symbol_t;
 
 typedef struct symbol_table {
@@ -30,6 +34,8 @@ const char *symbol_alias(const symbol_table_t *, const char *);
 long symbol_number(const char *);
 long symbol_value(const symbol_table_t *, const char *);
 int symbol_equal(const char *, const char *);
+int symbols_layout(const source_program_t *, symbol_table_t *, FILE *);
+int symbols_eval(const symbol_table_t *, const char *, long, long *);
 int symbols_read(symbol_table_t *, FILE *, FILE *);
 int symbols_write(const symbol_table_t *, FILE *);
 int symbols_validate(const symbol_table_t *, FILE *);

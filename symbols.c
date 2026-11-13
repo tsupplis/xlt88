@@ -107,12 +107,14 @@ symbols_build(const source_program_t *source, symbol_table_t *table, FILE *diagn
 		item->is_equ = !strcmp(stmt->opcode, "equ");
 		item->line = record->line;
 	}
-	return 1;
+	return symbols_layout(source, table, diagnostics);
 }
 
 void
 symbols_destroy(symbol_table_t *table)
 {
+	size_t i;
+	for (i = 0; i < table->count; ++i) expr_destroy(table->items[i].expression);
 	free(table->items);
 	memset(table, 0, sizeof(*table));
 }
