@@ -1,4 +1,5 @@
 #include <limits.h>
+#include <stdlib.h>
 #include <string.h>
 #include "symbols.h"
 
@@ -103,6 +104,23 @@ statement_size(const statement_t *stmt, const symbol_table_t *table, long pc)
 	return -1;
 }
 
+static int
+visit_equ(const symbol_table_t *table, const expr_t *tree, unsigned char *colors, unsigned depth)
+{
+	if (!tree) return 1;
+	if (depth > 128) return 0;
+	if (tree->kind == expr_symbol && tree->is_equ && tree->symbol_id) {
+		size_t index = tree->symbol_id - 1;
+		if (colors[index] == 1) return 0;
+		if (colors[index] == 2) return 1;
+		colors[index] = 1;
+		if (!visit_equ(table, table->items[index].expression, colors, depth + 1)) return 0;
+		colors[index] = 2;
+	}
+	return visit_equ(table, tree->left, colors, depth + 1) &&
+	    visit_equ(table, tree->right, colors, depth + 1);
+}
+
 int
 symbols_layout(const source_program_t *source, symbol_table_t *table, FILE *diagnostics)
 {
@@ -120,6 +138,18 @@ symbols_layout(const source_program_t *source, symbol_table_t *table, FILE *diag
 				return 0;
 			}
 		}
+	}
+	{
+		unsigned char *colors = calloc(table->count ? table->count : 1, 1);
+		if (!colors) return 0;
+		for (i = 0; i < table->count; ++i) {
+			if (!visit_equ(table, table->items[i].expression, colors, 0)) {
+				fprintf(diagnostics, "xlt88:%lu: cyclic or excessively deep EQU dependency\n", table->items[i].line);
+				free(colors);
+				return 0;
+			}
+		}
+		free(colors);
 	}
 	for (pass = 0; pass <= table->count; ++pass) {
 		long pc = 0x100;

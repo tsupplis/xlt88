@@ -8,3 +8,4 @@ out.asm
 /tests/iface
 .DS*
 *.swp
+/tests/expr

@@ -39,7 +39,7 @@ int symbols_eval(const symbol_table_t *, const char *, long, long *);
 int symbols_read(symbol_table_t *, FILE *, FILE *);
 int symbols_write(const symbol_table_t *, FILE *);
 int symbols_validate(const symbol_table_t *, FILE *);
-/* Rewrite expression tokens, preserving literals and quoted strings. */
+/* Parse and render a normalized expression using preferred symbol names. */
 int symbols_text(const symbol_table_t *, const char *, char *, size_t);
 int emit_named_8080(const source_program_t *, const symbol_table_t *, FILE *, FILE *);
 

@@ -61,7 +61,7 @@ emit_named_8080(const source_program_t *program, const symbol_table_t *symbols, 
 	}
 	return !ferror(out);
 too_long:
-	fputs("xlt88: normalized source exceeds source line or field limit\n", diagnostics);
+	fputs("xlt88: invalid normalized expression or source line/field limit exceeded\n", diagnostics);
 	return 0;
 }
 

@@ -148,36 +148,65 @@ invalid:
 	return 0;
 }
 
+static const char *
+preferred_name(void *context, const char *name, int *equ, size_t *id)
+{
+	const symbol_t *item = symbol_find(context, name);
+	if (!item) return NULL;
+	*equ = item->is_equ;
+	*id = item->id;
+	return item->preferred;
+}
+
+typedef struct text_buffer {
+	char *text;
+	size_t capacity, used;
+	int failed;
+} text_buffer_t;
+
+static void
+append(text_buffer_t *out, const char *text)
+{
+	size_t length = strlen(text);
+	if (out->failed) return;
+	if (length >= out->capacity - out->used) { out->failed = 1; return; }
+	memcpy(out->text + out->used, text, length);
+	out->used += length;
+	out->text[out->used] = 0;
+}
+
+static void
+source_expression(text_buffer_t *out, const expr_t *tree)
+{
+	static const char *const operators[] = {"+", "-", "*", "/", "%", " AND ", "|", "^", "<<", ">>", "~"};
+	switch (tree->kind) {
+	case expr_integer: case expr_string: case expr_symbol: case expr_location:
+		append(out, tree->text);
+		break;
+	case expr_unary:
+		append(out, "("); append(out, operators[tree->op]);
+		source_expression(out, tree->left); append(out, ")");
+		break;
+	case expr_binary:
+		append(out, "("); source_expression(out, tree->left);
+		append(out, operators[tree->op]); source_expression(out, tree->right);
+		append(out, ")");
+		break;
+	case expr_list:
+		source_expression(out, tree->left); append(out, ",");
+		source_expression(out, tree->right);
+		break;
+	}
+}
+
 int
 symbols_text(const symbol_table_t *table, const char *text, char *out, size_t capacity)
 {
-	size_t used = 0;
-	while (*text) {
-		const char *start = text++, *replacement = start;
-		size_t length;
-		char token[256];
-		if (*start == '\'' || *start == '"') {
-			while (*text && *text++ != *start)
-				;
-		} else if (isalnum((unsigned char)*start) || strchr("_.$?@#", *start)) {
-			const symbol_t *item;
-			while (*text && (isalnum((unsigned char)*text) || strchr("_.$?@#", *text)))
-				++text;
-			length = text - start;
-			if (length >= sizeof(token))
-				return 0;
-			memcpy(token, start, length);
-			token[length] = 0;
-			item = symbol_find(table, token);
-			if (item)
-				replacement = item->preferred;
-		}
-		length = replacement == start ? (size_t)(text - start) : strlen(replacement);
-		if (length >= capacity - used)
-			return 0;
-		memcpy(out + used, replacement, length);
-		used += length;
-	}
-	out[used] = 0;
-	return 1;
+	const char *error;
+	text_buffer_t buffer = { out, capacity, 0, 0 };
+	expr_t *tree = expr_parse(text, preferred_name, (void *)table, 1, &error);
+	if (!tree || !capacity) { expr_destroy(tree); return 0; }
+	source_expression(&buffer, tree);
+	expr_destroy(tree);
+	return !buffer.failed;
 }
