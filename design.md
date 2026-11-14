@@ -235,12 +235,13 @@ its contents have been fully loaded and validated.
 The current state format is a conservative subset of the full
 schema above. It contains `schema_version`, `source_fingerprint`, and `symbols`.
 The fingerprint is FNV-1a over parsed statement fields, including comments and
-record boundaries; it is an identity check, not a security signature. IDs are
+record boundaries, plus original file/line provenance when includes are used;
+it is an identity check, not a security signature. IDs are
 one-based definition-order indices scoped to that fingerprint. Array order is
 preserved on import. Object field order is unrestricted.
 
 Each entry contains `id`, `original_name`, `preferred_name`, `kind` (`label` or
-`equ`), `definition` (line number), `equ_expression` (source text or null),
+`equ`), `definition` (expanded-record ordinal), `equ_expression` (source text or null),
 `equ_value` (resolved signed source value or null), `source_address`
 (known original 8080 offset or null), and `generated_address` (currently null). State uses JSON content in an 8.3 `.sym`
 filename. Only preferred names may be edited. All other fields are checked
@@ -417,11 +418,26 @@ rather than treating lack of an obvious alias as proof of safety.
 ## Initial M80 reader
 
 The driver injects m80_dialect through the same dialect_t interface as Intel.
-One record remains associated with each physical line, including listing and
-mode directives normalized to comments. This preserves current symbol and FCB
-analysis indexing. LF, CRLF and bare CR are recognized; Ctrl-Z ends CP/M text.
-Macros, conditional assembly and includes require future source-origin records
-before expanding one line into multiple nodes or importing files. Their current
-rejection is intentional, not a claim of full M80 syntax support. The listing
-and mode subset follows the Microsoft MACRO-80 manual:
+The path-aware source_read entry point selects M80 preprocessing in m80.c;
+stream-only readers retain the dialect_t interface, but active includes require
+a source path. Raw parsing and preprocessing are separate operations.
+
+Each expanded source_record_t owns origin_file and retains origin_line for
+diagnostics. Its line field is a one-based expanded-record ordinal used by
+symbol, layout and FCB analysis; it is not a physical line after expansion.
+source_program_t owns the records and input-path list. source_destroy frees
+both. Listing, mode and active preprocessing directives become comment records;
+inactive source is omitted. LF, CRLF and bare CR are recognized; Ctrl-Z ends
+CP/M text.
+
+IF/IFT, IFE/IFF, IFDEF/IFNDEF and ELSE/ENDIF are evaluated in source order using
+previous active definitions. Numeric conditions require known absolute values.
+INCLUDE/.INCLUDE imports exact filenames relative to the containing source.
+Conditions balance within each file; active END terminates the expanded input.
+Include cycles, excessive nesting and malformed conditions are diagnosed.
+The driver protects every included input from output/state-file overwrites.
+
+Macro expansion, pass/string conditions, SET and relocatable modules remain
+unsupported. Expression grammar and symbol identity retain the shared IR
+contracts rather than claiming complete M80 compatibility. The M80 reference is:
 https://www.s100computers.com/Software%20Folder/Assembler%20Collection/Microsoft%20M80%20Manual.pdf

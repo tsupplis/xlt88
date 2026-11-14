@@ -34,7 +34,7 @@ emulation of a CP/M-80 machine identity.
 | 5. Complete BDOS 2.2 to CP/M-86 | Early | Twenty-one native lowering entries, including search/random operations | Implement and validate remaining 18 source functions or document required explicit ports; far-pointer and system-data consumers need representation-aware translation |
 | 6. Complete BDOS 2.2 to DOS 1.0 | Early | Six existing entries plus five proven opaque-FCB lowerings | Implement missing source semantics through native DOS operations; FCB layouts, statuses, user areas, attributes, drive policy and disk structures require explicit decisions, not call-number substitution |
 | 7. Native DOS 1.0 operation support | Pending | Target version and local reference sources identified | Inventory native services; define source representation for DOS-only operations; verify each entry against DOS 1.0 rather than assuming later-version behavior |
-| 8. Additional source readers | Partial | Intel ASM plus initial M80 8080 subset | M80 macros/conditionals/includes/relocation; MAC/RMAC; COM decoding with code/data and entry annotations |
+| 8. Additional source readers | Partial | Intel ASM plus M80 8080 subset with conditions/includes | M80 macros/pass and string conditions/relocation; MAC/RMAC; COM decoding with code/data and entry annotations |
 | 9. Additional assembler emitters | Pending | NASM renderer; normalized 8080 branch | MASM 3, ASM86, DRASM86, with exact version contracts, assembler runs and binary/execution equivalence |
 | 10. Real-program validation | Partial | Hello World, Microcosm CPU diagnostic, focused generated programs and native copy examples | Inventory new examples by CPU/dialect/API requirements; translate representative interpreters/games; record blockers and observable behavior checks |
 
@@ -145,5 +145,15 @@ CP/M EOF and CR/LF variants. Tests cover syntax/provenance, rejected unsupported
 constructs, line bounds, normalized round trips and binary equivalence for
 both targets. Syntax-only scans of the current Balloon, FIG-Forth, PILOT and
 Tiny BASIC examples found no line-parser errors; this is not end-to-end program
-translation coverage. Next parser work: conditional assembly and includes,
-then macro expansion with explicit provenance and module semantics.
+translation coverage.
+
+M80 conditional assembly and relative includes now expand before symbol/layout
+analysis. Supported conditions are IF/IFT, IFE/IFF and IFDEF/IFNDEF, with nested
+ELSE/ENDIF. Expanded records retain original file/line provenance and separate
+stable ordinals for downstream analysis. Tests cover inactive branches, nested
+includes, malformed blocks, include cycles, included-source overwrite protection,
+stale state after included content changes, normalized round trips, binary
+equivalence and included CP/M FCB source translated to DOS. Full regression and
+address/undefined-behavior sanitizer checks of the preprocessing tests pass.
+Next parser work: macro expansion with parameter and local-label semantics;
+pass/string conditions and relocatable module semantics remain pending.

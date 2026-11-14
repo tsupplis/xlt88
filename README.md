@@ -128,8 +128,18 @@ names such as `CPU` can coexist with NASM keywords.
 The M80 reader accepts the existing 8080 instruction/data syntax, known
 operations at column one, explicit labels with indentation, and `.8080`.
 `TITLE`, `SUBTTL`, `PAGE`, `.LIST` and `.XLIST` are retained as comments.
-Macro expansion, conditional assembly, includes, mutable SET symbols,
-relocatable modules and Z80 mode are explicitly unsupported. This is a flat
+`IF`/`IFT`, `IFE`/`IFF`, `IFDEF`/`IFNDEF`, `ELSE` and `ENDIF` support
+nested conditional assembly. Numeric conditions require absolute values known
+at that point; definedness tests inspect previously encountered active symbols.
+`INCLUDE` and `.INCLUDE` expand exact bare or quoted filenames, resolving relative
+paths against the containing file. Inactive branches do not open includes.
+Diagnostics retain the original filename and physical line after expansion.
+
+Conditional blocks must balance within each file. Include cycles are rejected;
+nesting is limited to 32 source files and 64 conditions per file. No implicit
+filename extension or include search path is supplied. Macro expansion,
+pass/string conditionals, mutable SET symbols, relocatable modules and Z80 mode
+are explicitly unsupported. This is a flat
 8080 source subset, not complete MACRO-80 compatibility; expression grammar
 and symbol identity still follow xlt88's current contracts.
 
@@ -142,7 +152,8 @@ label convention remains in effect unless a colon explicitly marks a label.
 
 The driver in `xlt88.c` selects dependencies and owns streams. The pipeline is:
 
-- `dialect.c`: Intel parsing into an owned `source_program_t`.
+- `dialect.c`: Intel/M80 lexical parsing into an owned `source_program_t`.
+- `m80.c`: M80 conditional assembly and includes with source provenance.
 - `norm8080.c`: optional 8080 source serialization (`--emit=8080`).
 - `osrecog.c`: conservative tracking of the BDOS function argument.
 - `symbols.c` and `state.c`: shared symbols and editable state.

@@ -150,6 +150,7 @@ read_source(FILE *in, source_program_t *program, int m80)
 	size_t capacity = 0;
 	int ended = 0;
 	while (!ended) {
+		if (program->count >= 65536) return 0;
 		char line[255];
 		size_t length = 0;
 		int ch, present = 0;

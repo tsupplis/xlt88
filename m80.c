@@ -16,7 +16,7 @@ typedef struct conditional {
 typedef struct m80_context {
 	source_program_t *output;
 	m80_symbol_t *symbols;
-	size_t count, capacity;
+	size_t count, capacity, read_count;
 	struct stat stack[32];
 	int ended, failed, oom;
 } m80_context_t;
@@ -142,12 +142,19 @@ process(m80_context_t *ctx, FILE *input, const char *path, unsigned depth)
 		append(ctx, &location, path, "cannot read M80 source", 0);
 		source_destroy(&raw); return 0;
 	}
+	if (raw.count > 65536 - ctx->read_count) {
+		append(ctx, &location, path, "M80 source expansion exceeds 65536 records", 0);
+		source_destroy(&raw); return 0;
+	}
+	ctx->read_count += raw.count;
 	for (i = 0; i < raw.count && !ctx->ended && !ctx->failed && !ctx->oom; ++i) {
 		const source_record_t *record = &raw.records[i];
 		const statement_t *stmt = &record->statement;
 		const char *op = stmt->opcode;
 		int opening = !strcmp(op, "if") || !strcmp(op, "ift") || !strcmp(op, "ife") ||
-		    !strcmp(op, "iff") || !strcmp(op, "ifdef") || !strcmp(op, "ifndef");
+		    !strcmp(op, "iff") || !strcmp(op, "ifdef") || !strcmp(op, "ifndef") ||
+		    !strcmp(op, "if1") || !strcmp(op, "if2") || !strcmp(op, "ifb") ||
+		    !strcmp(op, "ifnb") || !strcmp(op, "ifidn") || !strcmp(op, "ifdif");
 		location = *record;
 		if (opening) {
 			long value = 0;
@@ -155,11 +162,14 @@ process(m80_context_t *ctx, FILE *input, const char *path, unsigned depth)
 			if (level == 64) { append(ctx, record, path, "conditional nesting exceeds 64", 0); break; }
 			if (active) {
 				if (record->problem || stmt->label[0] || stmt->second[0] || !stmt->first[0]) {
-					append(ctx, record, path, "invalid conditional directive", 0); break;
+					append(ctx, record, path, record->problem ? record->problem : "invalid conditional directive", 0); break;
 				}
 				if (!strcmp(op, "ifdef") || !strcmp(op, "ifndef")) {
-					/* A symbol name, not an arithmetic expression. */
-					if (strpbrk(stmt->first, " \t()+-*/,")) {
+					const char *error;
+					expr_t *name = expr_parse(stmt->first, NULL, NULL, 0, &error);
+					int valid = name && name->kind == expr_symbol;
+					expr_destroy(name);
+					if (!valid) {
 						append(ctx, record, path, "IFDEF/IFNDEF requires a symbol name", 0); break;
 					}
 					test = find(ctx, stmt->first) != NULL;

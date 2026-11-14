@@ -33,6 +33,7 @@ test: ${PROG} tests/iface tests/expr tests/readers
 	./tests/expr
 	./tests/readers
 	${PYTHON} tests/readers.py
+	${PYTHON} tests/preproc.py
 	sh tests/coverage.sh
 	sh tests/smoke.sh
 	${PYTHON} tests/arith.py
