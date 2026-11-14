@@ -10,11 +10,11 @@ not complete. CMD allocation policy remains deferred for a separate design revie
 | Area | Current position | Remaining work |
 | --- | --- | --- |
 | Architecture | Separate readers, shared symbols/layout/analysis, CPU and OS lowering, owned target program and assembler emitters; injected interfaces | Finish typed source operands and structured memory operands; preserve modularity as analysis grows |
-| Inputs | Intel implemented; M80 and MAC useful partial readers; unchanged DISK7 parses | Remaining dialect semantics and relocation; RMAC; annotated COM decoding |
+| Inputs | Intel implemented; M80/MAC partial readers; RMAC single-module placement | RMAC module linking and broader dialect coverage; annotated COM decoding |
 | Outputs | NASM, ASM86, MASM 3 and RASM-86 assemble and execute regression fixtures on both targets | Broader program/layout coverage; segmented target representation |
 | Instruction translation | 78/78 mnemonic fixtures; 70,400 arithmetic/result/PSW cases; 8,192 AND/PSW cases | Exhaustive instruction/operand/flag coverage matrix and untested boundaries; hardware-dependent instructions |
 | CP/M-86 BDOS | All 39 non-reserved CP/M 2.2 native entry points emit and assemble through all four emitters | 27/31 consumers require explicit segment-aware port review. Device, IOBYTE, user/protection state and zero-fill execution limits remain; see api.md |
-| DOS BDOS mapping | 24/39 entries; nine use validated FCB plans | Buffered input, directory-result conversion, user/device/attribute/disk-policy differences and unsupported calls; native DOS-only API inventory |
+| DOS BDOS mapping | 25/39 entries (buffered input has an explicit capacity limit); nine use validated FCB plans | Capacity-255/native console-policy differences, directory-result conversion, user/device/attribute/disk-policy differences and unsupported calls; native DOS-only API inventory |
 | Symbols and placement | Editable name/EQU state, source identities, fixed-origin planning and branch-size optimization | State rebinding after source edits, explicit alignment contracts, segment/provenance analysis and assembler-map feedback |
 | Generic recognition | Bounded register facts and guarded DS 1 memory-loaded selectors | Broader control-flow/call effects; CP/M-86 unmatched values pass through natively with warnings, DOS exits. No general alias proof |
 
@@ -58,8 +58,8 @@ consumer adjustments and are labelled accordingly.
 
 The native pass-through policy is implemented for CP/M-86, with source and
 assembly warnings. Known calls retain their adaptations; unknown calls have
-native contracts. DOS remains strict. The 39/39 and 24/39 entry counts do not
-increase because a native extension can now pass through.
+native contracts. DOS remains strict. Native extension pass-through does not increase the
+CP/M 2.2 coverage count; DOS reached 25/39 with the buffered-input adapter.
 
 WASH has seven additional exact transcript/file comparisons. Its copy-completion
 probes expose limits in the original allocation assumptions; see washfile.md.
@@ -76,20 +76,17 @@ ASM86's loop was an expression-evaluator stack overflow in the assembler.
 Increasing its private stack from 600 to 2048 bytes resolves DISK7 assembly.
 All non-NASM emitters now write CRLF and final Ctrl-Z; NASM retains LF.
 
+Current functional batch implements DOS BDOS 10 for capacities 0..254,
+generic split-label FCB/DMA declarations, and RMAC single-module source
+placement. Focused tests pass across all four emitters, including the unchanged DRI
+filename parser. Full regression and sanitizer validation have passed.
+
 Next work:
 
-1. Expand DOS functionality with buffered console input (BDOS 10), including
-   capacity and carriage-return semantics.
-2. Implement generic object-declaration discovery for labels separated from
-   their FCB storage records. Keep metadata and subroutine-effects checks strict.
-3. Add a first usable annotated 8080 COM reader: origin 0100h, byte-accurate
-   decoding/provenance, code/data and pointer annotations, editable address
-   labels, and end-to-end fixtures through the shared pipeline. COM reading
-   is currently planned, not partially implemented; arbitrary binary recovery
-   is not the completion criterion.
-
-DOS directory-result conversion and DISK7's manual segment/BIOS adjustments
-remain subsequent work.
+1. Broaden RMAC with real relocatable modules and a deliberate linking contract;
+   EXTRN/COMMON and mixed placement are still unsupported.
+2. DOS directory-result conversion and bounded FCB subroutine effects.
+3. DISK7 manual segment/BIOS review; annotated COM decoding remains planned.
 
 CMD sizing/allocation policy remains deferred for a separate design discussion.
 
@@ -133,3 +130,13 @@ in `make test` for subsequent runs. The refreshed corpus records DISK7 at
 4/8 translate and 4/8 assemble combinations (all four CP/M-86 emitters; DOS
 remains blocked). Byte-format and far-pointer tests also passed after the
 test harness format correction. No original examples or references changed.
+
+RMAC/DOS batch validation: full `make test` completed successfully, including
+70,400 arithmetic/result/PSW cases, 8,192 AND/PSW cases, service/file tests,
+VTL-2 interactive/scripts, WASH comparisons/explicit-port tests and all four
+DISK7 assembly checkpoints. Final RMAC legacy-source/lexical checks passed
+under ASan/UBSan; storage and buffered-input focused sanitizer runs passed.
+Strict C99 warnings-as-errors compilation and Clang analysis of the new
+modules passed. The shared reader mode cleanup was followed by M80 macro and
+MAC regression checks. New source fixture `tests/parse.asm` is byte-identical
+to the local DRI CP/M 3 parser; original examples/references remain unchanged.

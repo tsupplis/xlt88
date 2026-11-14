@@ -247,8 +247,9 @@ and replay either target to different emitters. Call `source_destroy` and
 See [design.md](design.md) for the full architecture and remaining migration
 work. Editable symbol-state files, typed expression trees, and conservative
 source layout are available. Source instructions still use textual operand fields.
-Intel ASM and limited M80 and MAC 8080 readers are implemented. RMAC and COM
-readers are planned. NASM, ASM86, MASM 3 and DRASM86 (RASM-86) are implemented.
+Intel ASM and limited M80/MAC readers are implemented. RMAC single-module
+source placement is available through `--dialect=rmac`; see [rmac.md](rmac.md).
+COM input remains planned. NASM, ASM86, MASM 3 and DRASM86 (RASM-86) are implemented.
 
 Run `make test` with NASM, emu2, bin2cmd, cpm86_asm86, cpm86_gencmd,
 pcdev_masm3, pcdev_rasm86, pcdev_link2, pcdev_exe2bin, and Python 3 on PATH. The script accepts
@@ -612,3 +613,9 @@ port across all emitters. Its smaller allocation limits are simulated with
 base-page overrides and guard bytes; CMD sizing policy remains deferred.
 WASH's DOS analysis is in [washdos.md](washdos.md). DISK7 is an assembly/port-review
 checkpoint, not a newly validated executable.
+
+The current functional additions include DOS buffered input for capacities
+0..254 (native DOS editing/completion, explicit capacity-255 rejection) and
+generic FCB/DMA declarations with separate label and DS records. See api.md
+and tests/conbuf.py, tests/storage.py. RMAC coverage is a source-reader
+milestone, not complete relocatable linking.

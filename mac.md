@@ -3,7 +3,8 @@
 Select `--dialect=mac`; normalize independently with `--emit=8080`.
 The reader targets a flat 8080 subset of Digital Research MAC, using the
 [MAC manual](https://bitsavers.org/pdf/digitalResearch/cpm/CPM_MAC_Macro_Assembler_Nov80.pdf)
-as the syntax reference. It is not an alias for M80 and does not implement RMAC.
+as the syntax reference. It is not an alias for M80. Select the separate
+`rmac` reader for the placement subset documented in [rmac.md](rmac.md).
 
 | Area | Implemented contract |
 | --- | --- |
@@ -16,8 +17,8 @@ as the syntax reference. It is not an alias for M80 and does not implement RMAC.
 | Diagnostics | Original physical line provenance; errors prevent replacement of existing output |
 
 Records are limited to 254 characters. Listing controls supported by the reader
-are discarded; unknown controls are not silently accepted. Complete MACLIB,
-relocatable modules, pass-dependent conditions and full intermediate 16-bit
+are discarded; unknown controls are not silently accepted. Relative MACLIB basename.lib inclusion is supported (one eight-character
+basename per directive); library search paths, relocatable modules, pass-dependent conditions and full intermediate 16-bit
 word arithmetic are not claimed. EQU/SET values wrap to 16 bits; expressions
 whose division, shifts or comparisons require unsupported intermediate wrapping
 are conservatively rejected. Shared M80 extensions are not proof of full MAC
@@ -25,5 +26,5 @@ compatibility.
 
 `tests/mac.py` checks exact data bytes and native execution through all four
 assemblers on DOS and CP/M-86, plus rejection/atomic-output checks and unchanged
-DISK7 normalization. DISK7 normalization passes; its native translation and
-execution remain blocked by BDOS analysis/lowering limitations.
+DISK7 normalization. DISK7 normalizes, translates and assembles on all four CP/M-86 emitters.
+Its generated execution still requires explicit target-port review.

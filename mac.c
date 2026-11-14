@@ -223,8 +223,8 @@ statement(source_program_t *program, size_t *capacity, const char *text,
 	return append(program, capacity, generated, line, NULL);
 }
 
-static int
-raw_read(FILE *input, source_program_t *program)
+int
+mac_raw_read(FILE *input, source_program_t *program)
 {
 	char text[255];
 	size_t used = 0, capacity = 0;
@@ -263,7 +263,7 @@ raw_read(FILE *input, source_program_t *program)
 int
 mac_read_file(FILE *input, const char *path, source_program_t *program)
 {
-	return macro_read_file(input, path, program, raw_read, 1);
+	return macro_read_file(input, path, program, mac_raw_read, macro_mac);
 }
 
 static int

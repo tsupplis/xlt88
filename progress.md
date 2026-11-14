@@ -12,8 +12,8 @@ implementation and tests. Detailed OS service coverage lives in api.md.
 | AND-immediate execution | 8,192/8,192: 1,024 per emitter/OS pair | Exhaustive accumulator values for four constant-AC masks, with result and full PSW checks |
 | Arithmetic execution | 70,400/70,400: 8,800 per emitter/OS pair | All four emitters × DOS 1.0 and CP/M-86 agree with the reference model for the existing case set |
 | CP/M-86 native BDOS lowering entries | 39/39; 27/31 require pointer-consumer port review | All non-reserved entries emit native code. Two return ES:BX without automatic source-pointer conversion; device, protection/user-state and zero-fill execution remain limited |
-| DOS native BDOS lowering entries | 24/39, nine with validated FCB plans | 0–6, 9, 11, 13, 14, 19, 23, 25, 26 plus 15, 16, 20–22, 33–36 for audited private or first-default FCB uses; 3/4/5 device execution unverified; not general file/API coverage |
-| Input readers | Intel implemented; M80/MAC partial | MAC normalises unchanged DISK7; RMAC and COM pending |
+| DOS native BDOS lowering entries | 25/39, nine with validated FCB plans | 0–6, 9–11, 13, 14, 19, 23, 25, 26 plus 15, 16, 20–22, 33–36 for audited private or first-default FCB uses; buffered input supports capacities 0..254 with native DOS editing/completion; 3/4/5 device execution unverified |
+| Input readers | Intel implemented; M80/MAC partial; RMAC single-module placement | MAC handles unchanged DISK7; RMAC legacy filename parser executes on both targets/all emitters; full linking and COM input remain open |
 | Final assembler emitters | 4/4 | NASM, ASM86 1.1N2, MASM 3.00 and DRASM86 (RASM-86 1.4a); all three legacy flavors execute DOS 1.0 and CP/M-86 fixtures |
 | Normalized 8080 output | Implemented | Separate output from the parsed source, including preferred symbol names |
 | Symbol state | Version 2 implemented | Names, source-scoped IDs, EQU text/values and known original addresses; version 1 import supported |
@@ -33,9 +33,9 @@ emulation of a CP/M-80 machine identity.
 | 3. Typed intermediate representation | Partial | Fixed-region emission plan preserving source IDs; owned expression trees, ID-bound symbol leaves, checked arithmetic, EQU dependencies; typed target event/operand kinds | Typed source instructions/operands; structured target memory operands; full source provenance; remove remaining textual interpretation between passes |
 | 4. Correct 8080 instruction behavior | Partial | 78 mnemonic fixtures, CPU diagnostic, arithmetic cases, PSW/DAA checks, both targets | Explicit instruction/operand/flag coverage matrix; fill untested combinations and boundary cases; distinguish executed checks from emitted-byte checks and hardware-only behavior |
 | 5. Complete BDOS 2.2 to CP/M-86 | Native entry set complete; semantic validation partial | 39 entry-point lowerings; 27/31 retain native far results with mandatory review diagnostics | Automatic pointer-consumer translation remains absent; finish state/device/zero-fill execution validation and real-program coverage |
-| 6. Complete BDOS 2.2 to DOS 1.0 | Early | Fifteen direct service entries plus nine validated FCB lowerings | Implement missing source semantics through native DOS operations; FCB layouts, statuses, user areas, attributes, drive policy and disk structures require explicit decisions, not call-number substitution |
+| 6. Complete BDOS 2.2 to DOS 1.0 | Early | Sixteen non-FCB service entries (buffered input limited to capacities 0..254) plus nine validated FCB lowerings | Implement missing source semantics through native DOS operations; FCB layouts, statuses, user areas, attributes, drive policy and disk structures require explicit decisions, not call-number substitution |
 | 7. Native DOS 1.0 operation support | Pending | Target version and local reference sources identified | Inventory native services; define source representation for DOS-only operations; verify each entry against DOS 1.0 rather than assuming later-version behavior |
-| 8. Additional source readers | Partial | Intel ASM plus M80 8080 subset with conditions/includes/macros/LOCAL/repetition/EXITM/text operators/string conditions | M80/MAC remaining expression/word-arithmetic semantics/pass conditions/relocation; RMAC; COM decoding with code/data and entry annotations |
+| 8. Additional source readers | Partial | Intel ASM, M80/MAC subsets and RMAC single-module sections with macros/libraries and relocation checks | M80/MAC remaining expression/word-arithmetic semantics/pass conditions; RMAC external/common/mixed placement and full linking; COM decoding with code/data and entry annotations |
 | 9. Additional assembler emitters | Implemented; validation expanding | Four flavors; three legacy emitters pass CPU, memory/location, alignment, console and FCB comparisons on both OS targets | Arithmetic matrix complete; broaden real-program acceptance tests |
 | 10. Real-program validation | Partial | Repeatable `make corpus` inventory of nine assembly sources; Hello World, CPU diagnostic and explicit console-only Forth port execute in all eight combinations; per-stage report in corpus.md | Forth disk/printer port; PILOT monitor hooks and target expansion; Tiny BASIC restart bodies/DOS FCB proof; Balloon hardware port |
 
@@ -693,3 +693,36 @@ separately and are registered for future full gates. Corpus regenerated;
 DISK7 assembly is now 4/8 combinations. Original examples/references unchanged.
 The corpus and status reports are refreshed. Original examples and references
 remain unchanged. This batch is complete; no next-batch implementation started.
+
+## RMAC and DOS functional batch
+
+The planned COM-reader work was replaced, by agreement, with RMAC source
+support. `--dialect=rmac` now expands MAC macros/libraries and handles one
+module with code/data placement or absolute ASEG source. PUBLIC lists are
+validated locally, relocation expressions are type-checked, and unsupported
+external/common/mixed placement is diagnosed. `rmac.md` defines the boundary:
+this is a first single-module reader milestone, not full RMAC linking.
+
+DOS BDOS 10 now adapts capacities 0..254 using native AH=0Ah and a private
+buffer, preserving caller capacity and copying count/data without CR. Capacity
+255 is explicitly rejected at runtime; editing and completion remain native
+DOS policy. Entry coverage is 25/39 with this qualification. Tests cover 32
+capacity/content/guard/repeated-call cases across all emitters.
+
+Shared `storage_find` recognizes standalone FCB/DMA labels across blank/comment
+records, preserving DS extent and alias checks. Extent-crossing copies pass on
+all emitters; intervening data/ORG, aliases, short storage and branches into
+storage fail atomically. Unchanged WASH now reaches the subsequent subroutine
+proof blocker without any source rewrite. Whole-program DOS WASH is not claimed.
+
+The unchanged DRI CP/M 3 filename parser executes through both OS targets and
+all four emitters, covering names, wildcards, passwords and invalid drives.
+RMAC normalization/state round trips, macro/library provenance and negative
+relocation cases also pass. CMD allocation policy and COM decoding stay deferred.
+
+Validation: full make test passed. Final RMAC fixtures (including the unchanged
+DRI parser and malformed $TITLE inputs) passed ASan/UBSan; focused FCB-storage
+and console-buffer sanitizer checks passed. Strict C99/Werror and Clang analysis
+passed. MAC/M80 tests were repeated after shared reader-mode cleanup. The full
+CPU matrix and application comparisons remain green; original examples and
+references were not modified.

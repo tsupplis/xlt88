@@ -20,7 +20,7 @@ typedef struct conditional {
 typedef struct m80_context {
 	source_program_t *output;
 	int (*raw_read)(FILE *, source_program_t *);
-	int symbolic_set;
+	macro_mode_t mode;
 	macro_t *macros;
 	unsigned macro_depth, exit_depth, radix;
 	size_t expansions;
@@ -78,18 +78,19 @@ lookup(void *context, size_t id, const char *name, long *value)
 static int
 evaluate(void *context, const char *text, long *value)
 {
+	m80_context_t *ctx = context;
 	const char *error;
 	char normalized[256];
 	expr_t *tree;
 	if (strlen(text) >= sizeof(normalized)) return 0;
 	strcpy(normalized, text);
 	macro_join(normalized);
-	if (((m80_context_t *)context)->symbolic_set && !mac_literals(normalized)) return 0;
-	if (mexpr_text(normalized, ((m80_context_t *)context)->radix)) return 0;
-	if (((m80_context_t *)context)->symbolic_set && !mac_expression(normalized)) return 0;
+	if (ctx->mode != macro_m80 && !mac_literals(normalized)) return 0;
+	if (mexpr_text(normalized, ctx->radix)) return 0;
+	if (ctx->mode != macro_m80 && !mac_expression(normalized)) return 0;
 	tree = expr_parse(normalized, NULL, NULL, 0, &error);
 	int result = expr_eval(tree, lookup, context, -1, value);
-	if (result && ((m80_context_t *)context)->symbolic_set) *value = (long)((unsigned long)*value & 65535UL);
+	if (result && ctx->mode != macro_m80) *value = (long)((unsigned long)*value & 65535UL);
 	expr_destroy(tree);
 	return result;
 }
@@ -139,7 +140,7 @@ freeze_text(m80_context_t *ctx, char text[256])
 	const char *p = text;
 	size_t used = 0;
 	int quote = 0;
-	if (ctx->symbolic_set && !mac_literals(text)) return 0;
+	if ((ctx->mode != macro_m80) && !mac_literals(text)) return 0;
 	if (mexpr_text(text, ctx->radix)) return 0;
 	while (*p) {
 		char token[256], number[32];
@@ -158,7 +159,7 @@ freeze_text(m80_context_t *ctx, char text[256])
 			item = find(ctx, token);
 			if (item && item->mutable) {
 				snprintf(number, sizeof(number), ctx->radix == 10 ? "%ld" : "%ldD", item->value);
-				replacement = ctx->symbolic_set ? item->version : number;
+				replacement = (ctx->mode != macro_m80) ? item->version : number;
 			}
 		}
 		output = replacement == p ? length : strlen(replacement);
@@ -167,7 +168,7 @@ freeze_text(m80_context_t *ctx, char text[256])
 	}
 	result[used] = 0;
 	strcpy(text, result);
-	return !ctx->symbolic_set || mac_expression(text);
+	return ctx->mode == macro_m80 || mac_expression(text);
 }
 
 /* MAC SET versions preserve forward expressions and the binding visible at
@@ -215,7 +216,7 @@ freeze_statement(m80_context_t *ctx, statement_t *stmt)
 	for (i = 0; i < sizeof(registers)/sizeof(registers[0]); ++i)
 		if (!strcmp(stmt->opcode, registers[i])) return 1;
 	if (!freeze_text(ctx, stmt->first) || !freeze_text(ctx, stmt->second)) return 0;
-	if (ctx->symbolic_set && !strcmp(stmt->opcode, "equ")) {
+	if ((ctx->mode != macro_m80) && !strcmp(stmt->opcode, "equ")) {
 		long value;
 		char expression[256];
 		if (evaluate(ctx, stmt->first, &value)) snprintf(stmt->first, sizeof(stmt->first), "%ld", value);
@@ -347,6 +348,9 @@ process_records(m80_context_t *ctx, const source_program_t *raw, const char *pat
 		const statement_t *stmt;
 		macro_join(parsed.statement.label);
 		macro_join(parsed.statement.opcode);
+		if (ctx->mode == macro_rmac && parsed.problem &&
+		    !strcmp(parsed.problem, "M80 relocation/module directives are not implemented"))
+			parsed.problem = rmac_statement(parsed.text, &parsed.statement);
 		/* A known macro in column one is an operation, not a label. */
 		if (macro_find(ctx->macros, parsed.statement.label)) {
 			const char *token = parsed.text;
@@ -354,7 +358,7 @@ process_records(m80_context_t *ctx, const source_program_t *raw, const char *pat
 			if (*token != ':') parsed.problem = m80_statement(parsed.text, &parsed.statement, 1);
 		}
 		macro_join(parsed.statement.opcode);
-		if (ctx->symbolic_set && !parsed.problem) {
+		if ((ctx->mode != macro_m80) && !parsed.problem) {
 			char *fields[] = { parsed.statement.label, parsed.statement.opcode,
 			    parsed.statement.first, parsed.statement.second };
 			for (size_t field = 0; field < 4 && !parsed.problem; ++field)
@@ -454,8 +458,8 @@ process_records(m80_context_t *ctx, const source_program_t *raw, const char *pat
 		}
 		if (!strcmp(op, "set")) {
 			const char *error = record->problem ? record->problem :
-			    ctx->symbolic_set ? set_symbolic(ctx, &parsed.statement) : set_value(ctx, stmt);
-			append(ctx, record, origin, error, !error && !ctx->symbolic_set);
+			    (ctx->mode != macro_m80) ? set_symbolic(ctx, &parsed.statement) : set_value(ctx, stmt);
+			append(ctx, record, origin, error, !error && ctx->mode == macro_m80);
 			continue;
 		}
 		if (stmt->label[0]) {
@@ -488,16 +492,29 @@ process_records(m80_context_t *ctx, const source_program_t *raw, const char *pat
 			}
 		}
 		if (record->problem) { append(ctx, record, origin, record->problem, 0); break; }
-		if (!strcmp(op, "include") || !strcmp(op, ".include")) {
+		if (!strcmp(op, "include") || !strcmp(op, ".include") ||
+		    ((ctx->mode != macro_m80) && !strcmp(op, "maclib"))) {
 			char *included = NULL;
+			char library[256];
+			const char *filename = stmt->first;
 			FILE *stream = NULL;
 			struct stat identity;
 			const char *error = NULL;
 			unsigned j;
+			if (!strcmp(op, "maclib")) {
+				size_t n = strlen(filename);
+				if (!n || n > 8 || strspn(filename, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@?") != n)
+					error = "MACLIB requires one library basename of at most eight characters";
+				else {
+					snprintf(library, sizeof(library), "%s.lib", filename);
+					filename = library;
+				}
+			}
+			if (error) { append(ctx, record, origin, error, 0); continue; }
 			if (stmt->label[0] || stmt->second[0]) error = "invalid INCLUDE directive";
 			else if (depth + 1 >= 32) error = "include nesting exceeds 32";
 			else if (!path) error = "INCLUDE needs a source path; use source_read";
-			else if (!(included = include_path(origin, stmt->first))) error = "invalid INCLUDE filename";
+			else if (!(included = include_path(origin, filename))) error = "invalid INCLUDE filename";
 			else if (!(stream = fopen(included, "r"))) error = "cannot open included source";
 			else if (fstat(fileno(stream), &identity) < 0) error = "cannot inspect included source";
 			else for (j = 0; j <= depth; ++j)
@@ -519,6 +536,15 @@ process_records(m80_context_t *ctx, const source_program_t *raw, const char *pat
 		macro_join(parsed.statement.label);
 		macro_join(parsed.statement.first);
 		macro_join(parsed.statement.second);
+		if (ctx->mode == macro_rmac && (!strcmp(op, "aseg") || !strcmp(op, "cseg") ||
+		    !strcmp(op, "dseg") || !strcmp(op, "common") || !strcmp(op, "public") ||
+		    !strcmp(op, "extrn") || !strcmp(op, "entry") || !strcmp(op, "name") ||
+		    !strcmp(op, ".phase") || !strcmp(op, ".dephase"))) {
+			/* Module declarations are not arithmetic expressions. The RMAC
+			 * placement pass validates them after conditional/macro expansion. */
+			append(ctx, record, origin, NULL, 0);
+			continue;
+		}
 		if (!freeze_statement(ctx, &parsed.statement)) {
 			append(ctx, record, origin, "invalid numeric literal or normalized operand exceeds size limit", 0); break;
 		}
@@ -558,9 +584,9 @@ process(m80_context_t *ctx, FILE *input, const char *path, unsigned depth)
 
 int
 macro_read_file(FILE *input, const char *path, source_program_t *program,
-    int (*raw_read)(FILE *, source_program_t *), int symbolic_set)
+    int (*raw_read)(FILE *, source_program_t *), macro_mode_t mode)
 {
-	m80_context_t ctx = { .output = program, .radix = 10, .raw_read = raw_read, .symbolic_set = symbolic_set };
+	m80_context_t ctx = { .output = program, .radix = 10, .raw_read = raw_read, .mode = mode };
 	process(&ctx, input, path, 0);
 	free(ctx.symbols);
 	macro_destroy(ctx.macros);
@@ -570,5 +596,5 @@ macro_read_file(FILE *input, const char *path, source_program_t *program,
 int
 m80_read_file(FILE *input, const char *path, source_program_t *program)
 {
-	return macro_read_file(input, path, program, m80_raw_read, 0);
+	return macro_read_file(input, path, program, m80_raw_read, macro_m80);
 }

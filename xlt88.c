@@ -110,6 +110,7 @@ main(int argc, char *argv[])
 		else if (!strcmp(argv[arg], "--dialect=intel")) dialect = &intel_dialect;
 		else if (!strcmp(argv[arg], "--dialect=m80")) dialect = &m80_dialect;
 		else if (!strcmp(argv[arg], "--dialect=mac")) dialect = &mac_dialect;
+		else if (!strcmp(argv[arg], "--dialect=rmac")) dialect = &rmac_dialect;
 		else if (!strcmp(argv[arg], "--emit=8080")) normalized = 1;
 		else if (!strcmp(argv[arg], "--emit=nasm")) { normalized = 0; render = NULL; }
 		else if (!strcmp(argv[arg], "--emit=masm3")) { normalized = 0; render = masm_render; }
@@ -186,7 +187,7 @@ cleanup:
 	source_destroy(&program);
 	return result;
 usage:
-	fputs("usage: xlt88 [--target=msdos|cpm86] [--dialect=intel|m80|mac]"
+	fputs("usage: xlt88 [--target=msdos|cpm86] [--dialect=intel|m80|mac|rmac]"
 	    " [--emit=nasm|asm86|masm3|drasm86|8080] [--state-in=names.sym] [--state-out=names.sym]"
 	    " infile.asm outfile.asm\n", stderr);
 	return 1;

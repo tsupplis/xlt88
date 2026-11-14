@@ -21,7 +21,7 @@ References
 | 4, 5 | Punch/auxiliary and list output | Native lowering; all emitters assemble; device execution unverified | Native AH=04h/05h lowering; all emitters assemble; device execution unverified |
 | 6 | Direct console I/O | Implemented; FF polls input, FE output uses function 2 | Implemented via AH=06h, result copied to A and L |
 | 7, 8 | Get/set IOBYTE | Native calls; four emitters assemble, routing-state execution unverified | Port device selection explicitly |
-| 10 | Buffered input | Implemented; empty/full-capacity input and guard byte tested | Pending: DOS maximum includes its CR terminator; do not pass a CP/M-sized buffer unchanged |
+| 10 | Buffered input | Implemented; empty/full-capacity input and guard byte tested | Native AH=0Ah buffer adapter for capacities 0..254; count/data copied back without CR; capacity 255 reports an error and exits; native editing/completion policy |
 | 11 | Input status | Implemented; native status result | Implemented via AH=0Bh, result copied to A and L |
 | 12 | BDOS version | Implemented | Port the version-dependent branch explicitly |
 | 13 | Reset disks | Native reset/select A/DMA/search sequence; execution tested | Native reset/select A/DMA/search sequence; execution tested |
@@ -332,3 +332,25 @@ matters for far results, termination parameters and native extensions such as
 46. Pass-through is not additional automatic source-service coverage.
 `tests/native.py` exercises these boundaries and tail returns; `farptr.py`
 checks both known and dynamic far results using explicit test-only consumers.
+
+## DOS buffered input representation
+
+BDOS 10 now uses native DOS AH=0Ah with a private 257-byte native buffer per
+call site. For caller capacities 1..254 the native capacity is one larger,
+accounting for DOS's CR. Only the returned count and actual characters are
+copied back; the caller's capacity and unused/guard bytes remain unchanged.
+Capacity zero returns an empty count without consuming input. Capacity 255
+cannot be represented with DOS's 8-bit maximum including CR: it prints an
+explicit diagnostic and terminates, rather than silently truncating capacity.
+
+Line editing and CR completion remain native DOS policy. CP/M's full-buffer
+immediate completion, editing keys and parity/control handling are not emulated.
+Each lowering emits a source diagnostic describing these differences. This
+raises DOS entry coverage to 25/39, not full behavioral equivalence.
+
+`tests/conbuf.py` checks empty, partial, full and repeated reads, capacities
+0/1/4/254, exact caller bytes and capacity-255 rejection through all emitters.
+The installed emulator's DOS 0Ah accepts up to its maximum rather than maximum
+minus one, unlike the DOS source contract. Tests verify adapter bounds and
+representations; native interactive editing/overflow behavior still needs a
+real-DOS acceptance run. The adapter clamps an excessive native returned count.

@@ -107,8 +107,9 @@ A target-specific lowering pass must leave the source program intact.
 
 Reader families cover Intel ASM, the specified MAC/RMAC dialects, Microsoft
 M80 source syntax (including its macro/directive model), and binary COM.
-Intel ASM is implemented; M80 and MAC have partial flat-8080 readers. RMAC and
-COM readers remain planned. The MAC contract is documented in [mac.md](mac.md).
+Intel ASM is implemented; M80 and MAC have partial flat-8080 readers. RMAC has
+a single-module placement reader ([rmac.md](rmac.md)); COM remains planned.
+The MAC contract is documented in [mac.md](mac.md).
 The names of concrete assembler dialects and versions must be explicit in
 configuration. An `.asm` extension alone does not identify a dialect.
 A CP/M-80 `.COM` reader must decode instructions and accept code/data

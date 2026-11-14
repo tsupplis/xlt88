@@ -1,5 +1,5 @@
 PROG =	xlt88
-OBJS = conbuf.o storage.o reset.o fcbdef.o fcbaddr.o flags.o mexpr.o macro.o m80.o mac.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o regions.o norm8080.o \
+OBJS = rmac.o conbuf.o storage.o reset.o fcbdef.o fcbaddr.o flags.o mexpr.o macro.o m80.o mac.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o regions.o norm8080.o \
 	osrecog.o trans.o emitter.o target.o shrink.o nasm.o asm86.o asmfmt.o masm.o drasm86.o msdos.o cpm86.o
 PYTHON = python3
 
@@ -25,8 +25,8 @@ tests/iface: tests/iface.c ${OBJS}
 tests/expr: tests/expr.c expr.o expr.h
 	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/expr.c expr.o
 
-tests/readers: tests/readers.c dialect.o mexpr.o macro.o m80.o mac.o symbols.o layout.o expr.o dialect.h
-	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/readers.c dialect.o mexpr.o macro.o m80.o mac.o symbols.o layout.o expr.o
+tests/readers: tests/readers.c dialect.o mexpr.o macro.o m80.o mac.o rmac.o symbols.o layout.o expr.o dialect.h
+	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/readers.c dialect.o mexpr.o macro.o m80.o mac.o rmac.o symbols.o layout.o expr.o
 
 test: ${PROG} tests/iface tests/expr tests/readers tests/shrink tests/osrecog tests/flags tests/fcbaddr
 	./tests/iface
@@ -51,6 +51,7 @@ test: ${PROG} tests/iface tests/expr tests/readers tests/shrink tests/osrecog te
 	${PYTHON} tests/allreset.py
 	${PYTHON} tests/readers.py
 	${PYTHON} tests/mac.py
+	${PYTHON} tests/rmac.py
 	${PYTHON} tests/preproc.py
 	${PYTHON} tests/macros.py
 	${PYTHON} tests/repeat.py
@@ -72,6 +73,7 @@ test: ${PROG} tests/iface tests/expr tests/readers tests/shrink tests/osrecog te
 	${PYTHON} tests/devices.py
 	${PYTHON} tests/regions.py
 	${PYTHON} tests/console.py
+	${PYTHON} tests/conbuf.py
 	${PYTHON} tests/forth.py
 	${PYTHON} tests/arith.py
 	${PYTHON} tests/state.py
@@ -173,3 +175,5 @@ reset.o cpm86.o msdos.o: reset.h
 reset.o: emitter.h
 
 conbuf.o msdos.o: conbuf.h emitter.h
+
+rmac.o mac.o m80.o dialect.o: dialect.h

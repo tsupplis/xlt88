@@ -46,7 +46,7 @@ known_operation(const char *word)
 	    "lda sta lhld shld xthl xchg in out di ei org equ db dw ds align end "
 	    "title subttl page .radix .8080 .z80 .list .xlist macro endm rept irp irpc exitm local "
 	    "if ift iff ife if1 if2 ifdef ifndef ifb ifnb ifidn ifdif else endif include .include "
-	    "aseg cseg dseg common public extrn entry name set .phase .dephase", word);
+	    "aseg cseg dseg common public extrn entry name maclib set .phase .dephase", word);
 }
 
 /* Column-one conditional names can also label instructions (IFF DW DOCOL).
@@ -123,7 +123,7 @@ parse_statement(const char *line, statement_t *stmt, int m80)
 		if (!strcmp(stmt->opcode, ".z80")) return "M80 Z80 mode is unsupported; use 8080 source";
 		if (in_list("if1 if2", stmt->opcode))
 			return "M80 conditional assembly is not implemented";
-		if (in_list("aseg cseg dseg common public extrn entry name .phase .dephase", stmt->opcode))
+		if (m80 != 3 && in_list("aseg cseg dseg common public extrn entry name .phase .dephase", stmt->opcode))
 			return "M80 relocation/module directives are not implemented";
 		if (in_list("title subttl page .list .xlist .8080", stmt->opcode)) {
 			if (stmt->label[0]) return "label on M80 listing or mode directive is unsupported";
@@ -242,6 +242,12 @@ m80_statement(const char *text, statement_t *statement, int operation)
 	return parse_statement(text, statement, operation ? 2 : 1);
 }
 
+const char *
+rmac_statement(const char *text, statement_t *statement)
+{
+	return parse_statement(text, statement, 3);
+}
+
 int
 m80_raw_read(FILE *in, source_program_t *program)
 {
@@ -272,6 +278,7 @@ int
 source_read(const dialect_t *dialect, FILE *in, const char *path, source_program_t *program)
 {
 	if (dialect == &mac_dialect) return mac_read_file(in, path, program);
+	if (dialect == &rmac_dialect) return rmac_read_file(in, path, program);
 	return dialect == &m80_dialect ? m80_read_file(in, path, program) : dialect->read(in, program);
 }
 

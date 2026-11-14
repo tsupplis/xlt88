@@ -97,5 +97,5 @@ Guarded memory-loaded service dispatch and native reset allow unchanged CP/M-86 
 Observed blocker samples (at most three diagnostic lines per combination):
 
 ```text
-nasm/msdos: xlt88: DOS FCB analysis: FCB must have dedicated DS storage of at least 33 bytes
+nasm/msdos: xlt88: DOS FCB analysis: unrecognized subroutine may expose FCB storage
 ```

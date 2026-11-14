@@ -2,6 +2,21 @@
  * A private buffer keeps DOS's CR outside the caller's max+2 allocation. */
 #include "conbuf.h"
 
+static const char *
+literal_name(void *context, const char *name, int *equ, size_t *id)
+{
+	(void)context;
+	*equ = 0;
+	*id = 0;
+	return name;
+}
+
+static operand_t
+literal(const char *text)
+{
+	return (operand_t){ .kind = operand_expression, .text = text, .resolve = literal_name };
+}
+
 static void
 step(const emitter_t *out, const char *op, operand_t a, operand_t b)
 {
@@ -38,7 +53,7 @@ dos_console_buffer(const emitter_t *out, unsigned long site)
 	step(out, "or", reg("al"), reg("al"));
 	branch(out, "je", "cb_empty", site);
 	branch(out, "call", "cb_data", site);
-	emit(out, output_reserve_bytes, NULL, operand(operand_expression, "257"), no_operand);
+	emit(out, output_reserve_bytes, NULL, literal("257"), no_operand);
 	emit(out, output_line_end, NULL, no_operand, no_operand);
 	label(out, "cb_data", site);
 	step(out, "pop", reg("si"), no_operand);
@@ -66,7 +81,8 @@ dos_console_buffer(const emitter_t *out, unsigned long site)
 	step(out, "mov", mem("bx"), reg("al"));
 	step(out, "xor", reg("cx"), reg("cx"));
 	step(out, "mov", reg("cl"), reg("al"));
-	branch(out, "jcxz", "cb_done", site);
+	step(out, "or", reg("cx"), reg("cx"));
+	branch(out, "jz", "cb_done", site);
 	label(out, "cb_copy", site);
 	step(out, "inc", reg("si"), no_operand);
 	step(out, "inc", reg("bx"), no_operand);
@@ -85,7 +101,7 @@ dos_console_buffer(const emitter_t *out, unsigned long site)
 	label(out, "cb_bad", site);
 	branch(out, "call", "cb_error", site);
 	emit(out, output_data_bytes, NULL,
-	    operand(operand_expression, "13,10,'DOS input capacity 255 needs a native port',13,10,'$'"), no_operand);
+	    literal("13,10,'DOS input capacity 255 needs a native port',13,10,'$'"), no_operand);
 	emit(out, output_line_end, NULL, no_operand, no_operand);
 	label(out, "cb_error", site);
 	step(out, "pop", reg("dx"), no_operand);

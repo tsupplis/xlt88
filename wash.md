@@ -27,7 +27,7 @@ Reference CMD: 3840 bytes. Sizes include container/padding; they are not instruc
 | msdos | blocked by FCB representation; no execution claimed | — | — |
 
 ```text
-xlt88: DOS FCB analysis: FCB must have dedicated DS storage of at least 33 bytes
+xlt88: DOS FCB analysis: unrecognized subroutine may expose FCB storage
 ```
 
 ## Remaining porting work
