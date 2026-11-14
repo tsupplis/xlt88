@@ -222,6 +222,23 @@ write_asm86(void *context, const output_t *event)
 		write_expr(ctx, first->expression);
 		if (ctx->masm && event->kind == output_reserve_bytes) fputs(" dup(0)\n\tendif", out);
 		break;
+	case output_origin: {
+		char current[80];
+		if (ctx->relocatable) {
+			unsigned long number = ++ctx->location_count;
+			fprintf(out, "p_%lu:\n", number);
+			snprintf(current, sizeof(current), "(p_%lu-x_entry+100h)", number);
+		} else strcpy(current, ctx->masm ? "($-x_entry+100h)" : "(offset $)");
+		/* Compare unsigned offsets without depending on assembler signedness.
+		 * RB can silently accept a negative count, so force a diagnostic first. */
+		fprintf(out, "\tif (%s shr 1) gt %ld\n", current, first->value >> 1);
+		fputs("\tdw x_ovflow ; translated code exceeds ORG\n\tendif\n", out);
+		fprintf(out, "\tif (%s shr 1) eq %ld\n\tif (%s and 1) gt %ld\n", current, first->value >> 1, current, first->value & 1);
+		fputs("\tdw x_ovflow ; translated code exceeds ORG\n\tendif\n\tendif\n", out);
+		if (ctx->masm) fprintf(out, "\tif %ld-%s\n\tdb (%ld-%s) dup(0)\n\tendif", first->value, current, first->value, current);
+		else fprintf(out, "\trb (%ld-%s)", first->value, current);
+		break;
+	}
 	case output_alignment:
 		if (ctx->relocatable) {
 			unsigned long number = ++ctx->location_count;

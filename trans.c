@@ -28,6 +28,8 @@ typedef struct translation {
 	const backend_t *target;
 	statement_t statement;
 	const symbol_table_t *symbols;
+	const source_program_t *source;
+	unsigned char *boundaries;
 	unsigned long source_line;
 	const source_record_t *record;
 	int errors;
@@ -520,12 +522,39 @@ rz(translation_t *ctx)
 	newlab(ctx);
 }
 
+static long
+source_boundary(translation_t *ctx, const char *text)
+{
+	long offset, result = -1;
+	size_t i;
+	long location = ctx->source_line && ctx->source_line <= ctx->symbols->address_count ?
+	    ctx->symbols->addresses[ctx->source_line - 1] : -1;
+	if (!symbols_eval(ctx->symbols, text, location, &offset) || offset < 0 || offset > 65535) return -1;
+	for (i = 0; i < ctx->source->count; ++i) {
+		const char *op = ctx->source->records[i].statement.opcode;
+		if (!strcmp(op, "end")) break;
+		if (ctx->symbols->addresses[i] != offset || !*op ||
+		    !strcmp(op, "equ") || !strcmp(op, "org") || !strcmp(op, "align") ||
+		    !strcmp(op, "db") || !strcmp(op, "dw") || !strcmp(op, "ds")) continue;
+		if (result >= 0) return -1; /* Overlaid code is ambiguous. */
+		result = (long)i;
+	}
+	return result;
+}
+
 static void
 transfer(translation_t *ctx, int tail)
 {
 	const char *destination = resolve_alias(ctx, ctx->statement.first);
 	long offset = destination != NULL ? number(destination) : -1;
 
+	if (!ctx->statement.second[0] && (destination == NULL || (offset < 0 && !is_label(destination)))) {
+		long bound = source_boundary(ctx, ctx->statement.first);
+		if (bound >= 0) {
+			instruction(ctx->out, tail ? "jmp" : "call", operand(operand_internal_label, "src"), value(operand_immediate, bound));
+			return;
+		}
+	}
 	if (ctx->statement.second[0] || destination == NULL || (offset < 0 && !is_label(destination))) {
 		diagnose(ctx, "unsupported transfer target expression: ", ctx->statement.first);
 		return;
@@ -543,7 +572,7 @@ transfer(translation_t *ctx, int tail)
 		if (ctx->bdos_function == 0) {
 			ctx->target->exit_program(ctx->out);
 		} else if (ctx->bdos_function < 0) {
-			diagnose(ctx, "BDOS call needs an immediately preceding MVI C, constant: ", ctx->statement.first);
+			diagnose(ctx, "BDOS call needs a statically proven function in C: ", ctx->statement.first);
 		} else if (!(ctx->fcb_call && ctx->target->file_call ?
 		    ctx->target->file_call(ctx->out, ctx->bdos_function, ctx->source_line) :
 		    ctx->target->bdos(ctx->out, ctx->bdos_function))) {
@@ -919,8 +948,20 @@ cpi(translation_t *ctx)
 static void
 org(translation_t *ctx)
 {
-	if (ctx->origin_seen || ctx->image_started || ctx->statement.label[0] || address(ctx, ctx->statement.first) != 0x100)
-		diagnose(ctx, "expected a single initial ORG 100h, got ", ctx->statement.first);
+	long origin, pc = ctx->source_line <= ctx->symbols->address_count ?
+	    ctx->symbols->addresses[ctx->source_line - 1] : -1;
+	if (ctx->statement.label[0] || ctx->statement.second[0] ||
+	    !symbols_eval(ctx->symbols, ctx->statement.first, pc, &origin) || origin < 0 || origin > 65535) {
+		diagnose(ctx, "ORG needs a known unlabelled 16-bit source address: ", ctx->statement.first);
+		return;
+	}
+	if (!ctx->origin_seen && !ctx->image_started) {
+		if (origin != 0x100) diagnose(ctx, "initial ORG must be 100h; out-of-order regions need an explicit port: ", ctx->statement.first);
+	} else if (pc < 0 || origin < pc) {
+		diagnose(ctx, "backward/unknown ORG would overlap source regions: ", ctx->statement.first);
+	} else {
+		emit(ctx->out, output_origin, NULL, value(operand_immediate, origin), no_operand);
+	}
 	ctx->origin_seen = 1;
 }
 
@@ -1104,13 +1145,30 @@ translate_program(const source_program_t *program, const symbol_table_t *symbols
 {
 	translation_t translation = {
 		.out = emitter, .diagnostics = diagnostics, .target = backend,
-		.bdos_function = -1, .symbols = symbols
+		.bdos_function = -1, .symbols = symbols, .source = program
 	};
 	translation_t *ctx = &translation;
 	size_t i;
 	long *functions = NULL;
 	fcb_plan_t fcbs = {0};
 
+	ctx->boundaries = calloc(program->count ? program->count : 1, 1);
+	if (!ctx->boundaries) { diagnose(ctx, "cannot allocate boundary bindings", ""); goto cleanup; }
+	for (i = 0; i < program->count; ++i) {
+		const statement_t *stmt = &program->records[i].statement;
+		const char *op = stmt->opcode;
+		if (!strcmp(op, "end")) break;
+		if (*op == 'j' || !strcmp(op, "call") || !strcmp(op, "cnz") || !strcmp(op, "cz") ||
+		    !strcmp(op, "cnc") || !strcmp(op, "cc") || !strcmp(op, "cpo") || !strcmp(op, "cpe") || !strcmp(op, "cp") || !strcmp(op, "cm")) {
+			long bound;
+			const char *alias = resolve_alias(ctx, stmt->first);
+			if (alias && (number(alias) >= 0 || is_label(alias))) continue;
+			ctx->source_line = i + 1;
+			bound = source_boundary(ctx, stmt->first);
+			if (bound >= 0) ctx->boundaries[bound] = 1;
+		}
+	}
+	ctx->source_line = 0;
 	if (!recognize_os_calls(program, recognition_value, ctx, &functions)) {
 		diagnose(ctx, "cannot allocate OS annotations", "");
 		goto cleanup;
@@ -1125,6 +1183,7 @@ translate_program(const source_program_t *program, const symbol_table_t *symbols
 		ctx->source_line = record->line;
 		ctx->record = record;
 		ctx->statement = record->statement;
+		if (ctx->boundaries[i]) emit(ctx->out, output_internal_definition, "src", value(operand_immediate, i), no_operand);
 		ctx->bdos_function = functions[i];
 		ctx->fcb_call = fcbs.calls && fcbs.calls[i];
 		ctx->grow_fcb = fcbs.grow && fcbs.grow[i];
@@ -1138,6 +1197,7 @@ translate_program(const source_program_t *program, const symbol_table_t *symbols
 cleanup:
 	fcb_destroy(&fcbs);
 	free(functions);
+	free(ctx->boundaries);
 	return ctx->errors != 0;
 }
 

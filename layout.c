@@ -124,6 +124,10 @@ int
 symbols_layout(const source_program_t *source, symbol_table_t *table, FILE *diagnostics)
 {
 	size_t i, pass;
+	table->addresses = malloc((source->count ? source->count : 1) * sizeof(*table->addresses));
+	if (!table->addresses) return 0;
+	table->address_count = source->count;
+	for (i = 0; i < source->count; ++i) table->addresses[i] = -1;
 	/* Bind EQU trees once; references carry IDs rather than pointers into
 	 * arrays. Layout can then reevaluate forward definitions safely. */
 	for (i = 0; i < table->count; ++i) {
@@ -159,6 +163,7 @@ symbols_layout(const source_program_t *source, symbol_table_t *table, FILE *diag
 			const statement_t *stmt = &source->records[i].statement;
 			const symbol_t *found = symbol_find(table, stmt->label);
 			long size;
+			table->addresses[i] = pc;
 			if (!strcmp(stmt->opcode, "end")) break;
 			if (found) {
 				symbol_t *item = &table->items[found->id - 1];
@@ -177,6 +182,7 @@ symbols_layout(const source_program_t *source, symbol_table_t *table, FILE *diag
 		if (!changed) return 1;
 	}
 	/* Self-dependent layout must never export an apparently exact offset. */
+	for (i = 0; i < source->count; ++i) table->addresses[i] = -1;
 	for (i = 0; i < table->count; ++i)
 		table->items[i].source_address = table->items[i].definition_address = -1;
 	return 1;

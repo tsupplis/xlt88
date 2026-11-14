@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 #include "dialect.h"
+#include "expr.h"
 
 static int
 space(char ch)
@@ -48,6 +49,24 @@ known_operation(const char *word)
 	    "aseg cseg dseg common public extrn entry name set .phase .dephase", word);
 }
 
+/* Column-one conditional names can also label instructions (IFF DW DOCOL).
+ * Keep a syntactically valid condition, including opcode-named symbols, as
+ * a directive. Only the otherwise invalid two-operation form is a label. */
+static int
+conditional_label(const char *word, const char *following, const char *operand)
+{
+	char expression[256];
+	const char *error;
+	expr_t *tree;
+	int label;
+	if (!in_list("if ift ife iff", word) || !known_operation(following)) return 0;
+	copy_token(expression, operand, operand + strcspn(operand, ";"));
+	tree = expr_parse(expression, NULL, NULL, 0, &error);
+	label = tree == NULL;
+	expr_destroy(tree);
+	return label;
+}
+
 static const char *
 parse_statement(const char *line, statement_t *stmt, int m80)
 {
@@ -81,6 +100,7 @@ parse_statement(const char *line, statement_t *stmt, int m80)
 			copy_token(following, after, end);
 			for (i = 0; following[i]; ++i) following[i] = tolower((unsigned char)following[i]);
 			label = *p == ':' || (m80 && in_list("equ macro set", following)) ||
+			    (m80 == 1 && start == line && conditional_label(token, following, after)) ||
 			    (start == line && *start && *start != ';' &&
 			    (!m80 || (m80 != 2 && !known_operation(token))));
 		}

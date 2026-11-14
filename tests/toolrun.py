@@ -12,18 +12,18 @@ emu = os.environ.get('EMU2', 'emu2')
 env = dict(os.environ, EMU2_CPM_VER='2.2', EMU2_DOSVER='1.0')
 
 def runner(work, target):
-    def command(args, execution=False, codes=(0,)):
-        result = subprocess.run(args, cwd=work, env=env if execution else dict(env, EMU2_DOSVER="3.3"), capture_output=True, timeout=60)
+    def command(args, execution=False, codes=(0,), input=None):
+        result = subprocess.run(args, cwd=work, env=env if execution else dict(env, EMU2_DOSVER="3.3"), capture_output=True, timeout=60, input=input)
         assert result.returncode in codes, (args, result.stdout, result.stderr)
         return result.stdout
-    def build(name, text, flavor):
+    def build(name, text, flavor, dialect="intel"):
         # Never let a failed tool leave a previous executable looking successful.
         for extension in ('.obj','.exe','.com','.cmd','.h86'):
             (work/(name+extension)).unlink(missing_ok=True)
         source = work/(name+'.80')
-        source.write_text(text)
+        source.write_bytes(text) if isinstance(text, bytes) else source.write_text(text)
         suffix = '.a86' if flavor in ('asm86','drasm86') else '.asm'
-        command([str(exe),'--target='+target,'--emit='+flavor,str(source),name+suffix])
+        command([str(exe),'--dialect='+dialect,'--target='+target,'--emit='+flavor,str(source),name+suffix])
         if flavor == 'asm86':
             log = command([assembler,name+'.a86'])
             # Ignored syntax is still a regression, even if the wrapper accepts it.
@@ -56,6 +56,6 @@ def runner(work, target):
             command([os.environ.get('NASM','nasm'),'-Werror','-f','bin',name+'.asm','-o',name+'.com'])
             if target == 'cpm86':
                 command([os.environ.get('BIN2CMD','bin2cmd'),name+'.com',name+'.cmd'])
-    def execute(name, *args):
-        return command([emu,name+('.cmd' if target == 'cpm86' else '.com'),*args], execution=True)
+    def execute(name, *args, input=None):
+        return command([emu,name+('.cmd' if target == 'cpm86' else '.com'),*args], execution=True, input=input)
     return command, build, execute

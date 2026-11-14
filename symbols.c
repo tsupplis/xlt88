@@ -124,6 +124,7 @@ symbols_destroy(symbol_table_t *table)
 	size_t i;
 	for (i = 0; i < table->count; ++i) expr_destroy(table->items[i].expression);
 	free(table->items);
+	free(table->addresses);
 	memset(table, 0, sizeof(*table));
 }
 

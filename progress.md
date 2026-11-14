@@ -9,7 +9,7 @@ implementation and tests. Detailed OS service coverage lives in api.md.
 | Measure | Current result | What it establishes |
 | --- | --- | --- |
 | 8080 mnemonic fixtures | 78/78 | Every translator mnemonic appears in an assembled fixture; not exhaustive instruction behavior |
-| Arithmetic execution | 8,800 cases per OS target | Tested arithmetic/flag combinations agree with the reference model |
+| Arithmetic execution | 70,400/70,400: 8,800 per emitter/OS pair | All four emitters × DOS 1.0 and CP/M-86 agree with the reference model for the existing case set |
 | CP/M-86 native BDOS lowering entries | 21/39 non-reserved CP/M 2.2 functions | Functions 0, 1, 2, 9, 12, 15–23, 25, 26, 33–36, 40 have lowering code; function 40 execution unverified |
 | DOS native BDOS lowering entries | 11/39, five with restricted FCB analysis | 0, 1, 2, 9, 25, 26 plus 15, 16, 20–22 for proven opaque FCB uses; not general file/API coverage |
 | Input readers | Intel implemented; M80 partial; 2 pending | M80 flat 8080 syntax/listing subset implemented; MAC/RMAC and COM pending |
@@ -35,8 +35,8 @@ emulation of a CP/M-80 machine identity.
 | 6. Complete BDOS 2.2 to DOS 1.0 | Early | Six existing entries plus five proven opaque-FCB lowerings | Implement missing source semantics through native DOS operations; FCB layouts, statuses, user areas, attributes, drive policy and disk structures require explicit decisions, not call-number substitution |
 | 7. Native DOS 1.0 operation support | Pending | Target version and local reference sources identified | Inventory native services; define source representation for DOS-only operations; verify each entry against DOS 1.0 rather than assuming later-version behavior |
 | 8. Additional source readers | Partial | Intel ASM plus M80 8080 subset with conditions/includes/macros/LOCAL/repetition/EXITM/text operators/string conditions | M80 remaining expression/word-arithmetic semantics/pass conditions/relocation; MAC/RMAC; COM decoding with code/data and entry annotations |
-| 9. Additional assembler emitters | Implemented; validation expanding | Four flavors; three legacy emitters pass CPU, memory/location, alignment, console and FCB comparisons on both OS targets | Run the full arithmetic reference suite across all emitters; broaden real-program acceptance tests |
-| 10. Real-program validation | Partial | Hello World, Microcosm CPU diagnostic, focused generated programs and native copy examples | Inventory new examples by CPU/dialect/API requirements; translate representative interpreters/games; record blockers and observable behavior checks |
+| 9. Additional assembler emitters | Implemented; validation expanding | Four flavors; three legacy emitters pass CPU, memory/location, alignment, console and FCB comparisons on both OS targets | Arithmetic matrix complete; broaden real-program acceptance tests |
+| 10. Real-program validation | Partial | Repeatable `make corpus` inventory of six 8080 sources; Hello World and CPU diagnostic execute in all eight combinations; per-stage report in corpus.md | Forth NEXT+3 transfer resolution; PILOT layout/transfers; Tiny BASIC restarts/BDOS flow; Balloon hardware port |
 
 ## Immediate implementation order
 
@@ -189,3 +189,26 @@ M80 word-arithmetic and historical suffix differences remain unimplemented.
 Next parser work: define and validate the dialect arithmetic contract with
 reference fixtures. Nested parameter shadowing, pass conditions and relocatable
 modules remain pending.
+
+## Arithmetic matrix and example baseline
+
+The full arithmetic matrix passes 70,400 result/PSW comparisons: four emitters,
+two OS targets, 8,800 cases each. Historical MASM 3 runs out of memory on
+large DAA batches; all emitters now use the same 64-case batches. No cases
+were dropped. `tests/toolrun.py` shares strict assembler/build validation with
+the emitter fixtures. This expands validation across renderers; it does not
+make the arithmetic input space exhaustive.
+
+`make corpus` records normalization, translation/rendering, assembly and
+explicit execution separately in [corpus.md](corpus.md). Six 8080 inputs are
+tracked; four existing 8086 reference outputs are excluded. Two inputs execute
+across all eight combinations. Balloon only builds with NASM and remains
+hardware-specific. Three interpreter sources are blocked. Normalization is
+not a claim of instruction support, and successful assembly is not a claim
+of safe or correct execution.
+
+The M80 `IFF` label/directive ambiguity is fixed with focused regressions.
+FIG-Forth now normalizes unchanged; its next observed blocker is the `NEXT+3`
+transfer. Resolve source offsets to instruction boundaries before emitting
+target labels; never carry the source byte offset into translated machine code. PILOT and Tiny BASIC
+need native source-aware translation work, not a compatibility runtime.

@@ -444,3 +444,22 @@ XLT_EMIT=masm3 XLT_TARGET=msdos python3 tests/arith.py
 
 Omit either variable to run all values of that dimension. The tool overrides
 from the emitter fixtures also apply, including `XLT88`, `NASM` and `BIN2CMD`.
+
+## Real-program acceptance baseline
+
+Run `make corpus` to regenerate [corpus.md](corpus.md). The inventory preserves
+source bytes (including historical encodings), excludes existing 8086 output
+references, and distinguishes normalization from translation/rendering,
+assembly and execution. It discovers additional `.asm` files automatically;
+only explicitly approved smoke fixtures execute. A failed established smoke
+fixture makes the command fail; known unsupported programs are reported as
+blocked rather than counted as passing tests. The survey currently uses
+Intel syntax except for FIG-Forth's M80 listing syntax.
+
+M80 accepts column-one numeric conditional names (`IF`, `IFT`, `IFE`, `IFF`)
+as labels when followed by a known operation and the remaining text cannot
+form a conditional expression. Thus `IFF DW DOCOL` and `IFF RST 3` are labels,
+while `IFF DW-1` and `IF DW EQ 1` remain conditions on the symbol `DW`.
+Indentation retains directive interpretation, and a colon explicitly marks a
+label. This resolves the FIG-Forth spelling without reserving opcode-named
+symbols or modifying its source.

@@ -101,4 +101,23 @@ END
     source.write_text('.8080\nINCLUDE sub/copy.inc\n')
     run('--target=msdos')
     binary(output)
+    # Historical label spelling must not swallow DW/RST as an IFF condition.
+    source.write_text("jmp done\nIFF DW DOCOL\nDOCOL: dw 1234h\ndone: jmp 0\nend\n")
+    run('--emit=8080')
+    assert 'IFF:' in output.read_text() and 'dw DOCOL' in ' '.join(output.read_text().split())
+    for target in ('msdos', 'cpm86'):
+        run('--target='+target)
+        binary(output)
+    source.write_text("IFF RST 3\nend\n")
+    run('--emit=8080')
+    assert 'IFF:' in output.read_text() and 'rst 3' in ' '.join(output.read_text().split())
+    # Opcode-named symbols remain valid conditional operands, indented or not.
+    source.write_text("DW EQU 1\nIFF DW-1\n mvi a,7\nENDIF\nIF DW EQ 1\n mvi b,3\nENDIF\n IFF DW-1\n mvi d,9\n ENDIF\njmp 0\nend\n")
+    run('--emit=8080')
+    assert all(value in ' '.join(output.read_text().split()) for value in ('mvi a,7', 'mvi b,3', 'mvi d,9'))
+    source.write_text("IF 0\nIFF DW absent\nENDIF\njmp 0\nend\n")
+    run('--emit=8080')
+    assert 'absent' not in output.read_text()
+    source.write_text(" IFF DW DOCOL\nENDIF\nend\n")
+    assert 'previously defined' in run('--emit=8080', ok=False)
 print('M80 nested conditions/includes, provenance, state invalidation and source protection passed')

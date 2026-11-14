@@ -26,6 +26,10 @@ bdos(const emitter_t *out, long function)
 	case 9:
 		service = "DOS print dollar-terminated string at DS:DX";
 		break;
+	case 11:
+		returns_byte = 1;
+		service = "DOS console input status";
+		break;
 	case 25:
 		returns_byte = 1;
 		service = "DOS get current drive";

@@ -117,6 +117,9 @@ write_nasm(void *context, const output_t *event)
 		if (event->kind == output_reserve_bytes)
 			fputs(") db 0", out);
 		break;
+	case output_origin:
+		fprintf(out, "\ttimes (%ld-($-$$+100h)) db 0", first->value);
+		break;
 	case output_alignment: fprintf(out, "\talign %ld, db 0", first->value); break;
 	case output_comment:
 		if (*event->text)

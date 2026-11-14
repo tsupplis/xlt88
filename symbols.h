@@ -22,6 +22,8 @@ typedef struct symbol_table {
 	symbol_t *items;
 	size_t count;
 	uint64_t fingerprint;
+	long *addresses; /* Original address at each source record, -1 if unknown. */
+	size_t address_count;
 } symbol_table_t;
 
 /* Tables own their entries; source and diagnostic streams are borrowed.

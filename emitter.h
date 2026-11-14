@@ -20,7 +20,7 @@ typedef struct operand {
 
 typedef enum output_kind {
 	output_header, output_instruction, output_label, output_internal_definition, output_equate, output_data_bytes,
-	output_data_words, output_reserve_bytes, output_alignment, output_comment, output_line_end, output_error_comment
+	output_data_words, output_reserve_bytes, output_alignment, output_origin, output_comment, output_line_end, output_error_comment
 } output_kind_t;
 
 typedef struct output {

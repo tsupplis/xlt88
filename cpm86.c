@@ -29,6 +29,12 @@ bdos(const emitter_t *out, long function)
 	case 9:
 		service = "print dollar-terminated string at DS:DX";
 		break;
+	case 10: 
+		service = "read CP/M console buffer at DS:DX"; 
+		break;
+	case 11: 
+		service = "console input status"; 
+		break;
 	case 12:
 		service = "get BDOS version";
 		break;
@@ -61,11 +67,21 @@ bdos(const emitter_t *out, long function)
 	case 26:
 		service = "set DMA offset from DX";
 		break;
-	case 33: service = "random read, 24-bit record at FCB+33"; break;
-	case 34: service = "random write, 24-bit record at FCB+33"; break;
-	case 35: service = "file size in 128-byte records at FCB+33"; break;
-	case 36: service = "set random record from sequential position"; break;
-	case 40: service = "random write with native zero fill"; break;
+	case 33: 
+		service = "random read, 24-bit record at FCB+33"; 
+		break;
+	case 34: 
+		service = "random write, 24-bit record at FCB+33"; 
+		break;
+	case 35: 
+		service = "file size in 128-byte records at FCB+33"; 
+		break;
+	case 36: 
+		service = "set random record from sequential position"; 
+		break;
+	case 40: 
+		service = "random write with native zero fill"; 
+		break;
 	default:
 		return 0;
 	}

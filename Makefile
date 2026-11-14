@@ -47,6 +47,7 @@ test: ${PROG} tests/iface tests/expr tests/readers
 	XLT_TARGET=msdos XLT_EMIT=masm3 ${PYTHON} tests/emitters.py
 	XLT_EMIT=drasm86 ${PYTHON} tests/emitters.py
 	XLT_TARGET=msdos XLT_EMIT=drasm86 ${PYTHON} tests/emitters.py
+	${PYTHON} tests/flow.py
 	${PYTHON} tests/arith.py
 	${PYTHON} tests/state.py
 	${PYTHON} tests/layout.py
@@ -84,3 +85,12 @@ asm86.o asmfmt.o masm.o drasm86.o: asmfmt.h target.h emitter.h expr.h
 xlt88.o masm.o tests/iface: masm.h
 
 xlt88.o drasm86.o tests/iface: drasm86.h
+
+corpus: ${PROG}
+	${PYTHON} tests/corpus.py corpus.md
+
+.PHONY: corpus
+
+dialect.o: expr.h
+
+osrecog.o: symbols.h
