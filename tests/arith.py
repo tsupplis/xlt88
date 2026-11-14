@@ -1,11 +1,13 @@
 """Compare translated execution with an 8080 arithmetic reference model."""
 
 import os
+from itertools import product
 from pathlib import Path
-import subprocess
 import tempfile
+from toolrun import runner
 
-ROOT = Path(__file__).resolve().parents[1]
+# Keep identical batches within the historical assemblers' memory limits.
+BATCH = 64
 EDGES = (0, 1, 7, 8, 9, 10, 15, 16, 127, 128, 153, 154, 254, 255)
 
 
@@ -124,42 +126,44 @@ success: db 'OK$'
 
 
 def test(root):
-    emu2 = os.environ.get("EMU2", "emu2")
-    bin2cmd = os.environ.get("BIN2CMD", "bin2cmd")
     forms = {"adc": ("b", "m", "immediate"), "sbb": ("b", "m", "immediate"),
              "sub": ("b", "m", "immediate"), "cmp": ("b", "m", "immediate"),
              "inr": ("a", "b", "m"), "dcr": ("a", "b", "m"), "daa": ("",)}
-    for target in ("msdos", "cpm86"):
+    targets = (os.environ["XLT_TARGET"],) if "XLT_TARGET" in os.environ else ("msdos", "cpm86")
+    flavors = (os.environ["XLT_EMIT"],) if "XLT_EMIT" in os.environ else ("nasm", "asm86", "masm3", "drasm86")
+    assert all(t in ("msdos", "cpm86") for t in targets)
+    assert all(f in ("nasm", "asm86", "masm3", "drasm86") for f in flavors)
+    total = 0
+    for flavor, target in product(flavors, targets):
+        _, build, execute = runner(root, target)
+        measured = 0
         for op, operands in forms.items():
             inputs = cases(op)
             for form in operands:
-                for start in range(0, len(inputs), 256):
-                    batch = inputs[start:start + 256]
-                    (root / "input.80").write_text(fixture(op, form, batch))
-                    subprocess.run([ROOT / "xlt88", f"--target={target}",
-                                    "input.80", "output.asm"], cwd=root, check=True)
-                    subprocess.run(["nasm", "-Werror", "-f", "bin", "output.asm",
-                                    "-o", "test.com"], cwd=root, check=True)
-                    program = "test.com"
-                    if target == "cpm86":
-                        subprocess.run([bin2cmd, "test.com", "test.cmd"], cwd=root,
-                                       check=True, stdout=subprocess.DEVNULL,
-                                       stderr=subprocess.PIPE)
-                        program = "test.cmd"
-                    result = subprocess.check_output([emu2, program], cwd=root,
-                                                     timeout=15, env={**os.environ, "EMU2_DOSVER": "1.0", "EMU2_CPM_VER": "2.2"}).strip().decode("ascii")
+                for start in range(0, len(inputs), BATCH):
+                    batch = inputs[start:start + BATCH]
+                    try:
+                        build("arith", fixture(op, form, batch), flavor)
+                        result = execute("arith").strip().decode("ascii")
+                    except Exception as error:
+                        raise RuntimeError(f"{flavor}/{target} {op} {form} batch {start}") from error
                     if result != "OK":
                         if len(result) != 8:
-                            raise SystemExit(f"{target} {op} {form}: unexpected output {result!r}")
+                            raise SystemExit(f"{flavor}/{target} {op} {form}: unexpected output {result!r}")
                         index = int(result[:4], 16)
                         a, b, flags = batch[index]
                         expected_a, expected_psw = reference(op, a, b, flags)
                         raise SystemExit(
-                            f"{target} {op} {form} case {start + index}, A={a:02X}, B={b:02X}, "
+                            f"{flavor}/{target} {op} {form} case {start + index}, A={a:02X}, B={b:02X}, "
                             f"PSW={flags:02X}: expected {expected_a:02X}/{expected_psw:02X}, "
                             f"got {result[4:6]}/{result[6:8]}"
                         )
-                print(f"{target} {op} {form or '(implicit)'}: {len(inputs)}/{len(inputs)}")
+                measured += len(inputs)
+                print(f"{flavor}/{target} {op} {form or '(implicit)'}: {len(inputs)}/{len(inputs)}", flush=True)
+
+        total += measured
+        print(f"PASS {flavor}/{target}: {measured} result/PSW cases", flush=True)
+    print(f"PASS matrix: {total} cases across {len(flavors)*len(targets)} combinations", flush=True)
 
 
 if __name__ == "__main__":

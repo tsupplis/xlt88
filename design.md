@@ -9,10 +9,10 @@ contracts. They are proposals to implement incrementally.
 
 The current implementation has an Intel source reader in `dialect.c`,
 translation in `trans.c`, OS backends in `msdos.c` and `cpm86.c`,
-and assembler formatting in `nasm.c`, `asm86.c` and `masm.c` (shared `asmfmt.c`). The CLI selects these implementations.
+and assembler formatting in `nasm.c`, `asm86.c`, `masm.c` and `drasm86.c` (shared `asmfmt.c`). The CLI selects these implementations.
 The current CLI uses an owned source program, a separate conservative
 BDOS argument-recognition pass, CPU/OS lowering into an owned target program,
-and NASM, ASM86 or MASM 3 rendering after lowering completes. `--emit=8080` serializes the
+and NASM, ASM86, MASM 3 or RASM-86 rendering after lowering completes. `--emit=8080` serializes the
 parsed source independently of CPU/OS lowering. Target expressions are owned trees containing copied symbol spellings and
 stable source-scoped IDs. The expression emitters share parsed expression trees; NASM
 renders explicit parentheses to retain grouping. EQU definitions own bound
@@ -544,7 +544,7 @@ The initial validation contract is DRI ASM86 1.1N2 plus GENCMD in combined
 8080 model for CP/M-86. Regression requires zero assembler diagnostics and
 executed equivalence with NASM for the CPU diagnostic, console/flags,
 data/alignment/memory and native FCB copies. It does not assert byte identity
-or full symbolic-overflow equivalence. DRASM86 remains planned.
+or full symbolic-overflow equivalence. DRASM86 is implemented for RASM-86 1.4a; see its contract below.
 
 ## MASM 3 and the shared legacy formatter
 
@@ -569,3 +569,40 @@ ASM86 1.1N2 and GENCMD produce a combined CMD; DOS tests validate the single
 code-group header and extract the image above 100h into a COM. Build tools
 use DOS 3.3, while DOS execution tests report version 1.0. The only accepted
 linker warning is the missing STACK segment expected for COM files.
+
+## DRASM86 / RASM-86 contract
+
+`drasm86_render(const target_program_t *, FILE *, FILE *)` has the same
+immutable borrowed-target interface and success convention as the other
+legacy adapters. `asm_flavor_t` explicitly selects ASM86, MASM 3 or DRASM86
+inside `asmfmt_render`. `asmfmt_dos` performs CRLF serialization for the two
+DOS-hosted assemblers. All state is local to a render, and the target remains
+replayable after source/symbol destruction.
+
+DRASM86 means RASM-86 1.4a, which emits relocatable OBJ records. It shares
+ASM86's CSEG and dot-address operand forms but uses absolute differences of
+labels in the same segment for flat offsets. Location labels at expression
+sites and deferred equates preserve `$`; alignment uses the same rule. An
+explicit entry label at 100h is passed to END. These choices belong entirely
+to assembler rendering, not CPU translation or OS service lowering.
+
+The verified build path is RASM-86 -> Microsoft LINK 2.40 -> EXE2BIN -> COM,
+with bin2cmd wrapping for CP/M-86. Tests execute both OS targets and compare
+observable behavior with NASM. Default Digital Research LINK-86 output is
+not interchangeable with this flat-image contract. The arithmetic reference suite now runs across all four emitters and both OS
+targets. This expands renderer validation, not instruction or OS service
+coverage.
+
+## Shared test toolchains
+
+`tests/toolrun.py` exposes `runner(work, target)`, returning command, build and
+execute callables bound to an isolated workspace and OS target. Both behavioral
+emitter fixtures and the arithmetic reference matrix use it. It applies the
+same assembler diagnostic gates and packaging contract, deletes stale outputs
+before each build, and keeps build-tool DOS version separate from the version
+reported to translated programs. `tests/arith.py` owns only the independent
+reference model, source generation, case enumeration and result comparisons.
+
+The arithmetic matrix is four emitters by two OS targets, with 8,800 identical
+cases per cell. A uniform 64-case batch limit accommodates MASM 3's memory
+limit. A failure stops the run rather than reducing or skipping coverage.

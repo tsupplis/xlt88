@@ -1,6 +1,6 @@
 PROG =	xlt88
 OBJS = mexpr.o macro.o m80.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o norm8080.o \
-	osrecog.o trans.o emitter.o target.o nasm.o asm86.o asmfmt.o masm.o msdos.o cpm86.o
+	osrecog.o trans.o emitter.o target.o nasm.o asm86.o asmfmt.o masm.o drasm86.o msdos.o cpm86.o
 PYTHON = python3
 
 all: ${PROG}
@@ -12,7 +12,7 @@ xlt88.o trans.o msdos.o cpm86.o: backend.h
 
 xlt88.o trans.o: trans.h
 
-xlt88.o trans.o emitter.o target.o nasm.o asm86.o asmfmt.o masm.o msdos.o cpm86.o: emitter.h
+xlt88.o trans.o emitter.o target.o nasm.o asm86.o asmfmt.o masm.o drasm86.o msdos.o cpm86.o: emitter.h
 xlt88.o trans.o dialect.o norm8080.o osrecog.o: dialect.h
 trans.o osrecog.o: osrecog.h
 
@@ -45,6 +45,8 @@ test: ${PROG} tests/iface tests/expr tests/readers
 	XLT_TARGET=msdos ${PYTHON} tests/emitters.py
 	XLT_EMIT=masm3 ${PYTHON} tests/emitters.py
 	XLT_TARGET=msdos XLT_EMIT=masm3 ${PYTHON} tests/emitters.py
+	XLT_EMIT=drasm86 ${PYTHON} tests/emitters.py
+	XLT_TARGET=msdos XLT_EMIT=drasm86 ${PYTHON} tests/emitters.py
 	${PYTHON} tests/arith.py
 	${PYTHON} tests/state.py
 	${PYTHON} tests/layout.py
@@ -78,5 +80,7 @@ asm86.o: target.h emitter.h expr.h
 
 xlt88.o asm86.o tests/iface: asm86.h
 
-asm86.o asmfmt.o masm.o: asmfmt.h target.h emitter.h expr.h
+asm86.o asmfmt.o masm.o drasm86.o: asmfmt.h target.h emitter.h expr.h
 xlt88.o masm.o tests/iface: masm.h
+
+xlt88.o drasm86.o tests/iface: drasm86.h

@@ -11,3 +11,4 @@ out.asm
 /tests/expr
 
 /tests/readers
+/tests/__pycache__/

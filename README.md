@@ -1,6 +1,6 @@
 # xlt88
 
-xlt88 translates Intel 8080 assembly source to NASM, ASM86 or MASM 3 assembly for the 8086
+xlt88 translates Intel 8080 assembly source to NASM, ASM86, MASM 3 or RASM-86 assembly for the 8086
 or 8088. Its OS targets are IBM PC DOS 1.0 and CP/M-86 1.1.
 
 See [implementation progress](progress.md) for milestones, current measurements,
@@ -234,7 +234,7 @@ The driver in `xlt88.c` selects dependencies and owns streams. The pipeline is:
 - `trans.c`: CPU lowering with the injected `backend_t`.
 - `msdos.c` and `cpm86.c`: native OS sequences.
 - `target.c`: an owned `target_program_t`, independent of source lifetime.
-- `nasm.c`, `asm86.c`, `masm.c` (with shared `asmfmt.c`): assembler formatting through an injected `emitter_t`.
+- `nasm.c`, `asm86.c`, `masm.c`, `drasm86.c` (with shared `asmfmt.c`): assembler formatting through an injected `emitter_t`.
 
 `lower_8080` borrows the source and returns a separately owned target program.
 The caller can lower the same source for both OS targets, destroy the source,
@@ -245,11 +245,10 @@ See [design.md](design.md) for the full architecture and remaining migration
 work. Editable symbol-state files, typed expression trees, and conservative
 source layout are available. Source instructions still use textual operand fields.
 Intel ASM and a limited M80 8080 reader are implemented. MAC/RMAC and COM
-readers are planned. NASM, ASM86 and MASM 3 are implemented;
-DRASM86 remains planned.
+readers are planned. NASM, ASM86, MASM 3 and DRASM86 (RASM-86) are implemented.
 
 Run `make test` with NASM, emu2, bin2cmd, cpm86_asm86, cpm86_gencmd,
-pcdev_masm3, pcdev_link2, pcdev_exe2bin, and Python 3 on PATH. The script accepts
+pcdev_masm3, pcdev_rasm86, pcdev_link2, pcdev_exe2bin, and Python 3 on PATH. The script accepts
 `EMU2` and `BIN2CMD` overrides. It checks both Hello World binaries,
 the generated native calls, diagnostics, exact packed and aligned data,
 the 8080 auxiliary carry produced by ANA and ANI through PSW and DAA,
@@ -346,7 +345,7 @@ full equivalence for arbitrary symbolic overflow is not established.
 `tests/emitters.py` rejects assembler errors and ignored-syntax warnings, then
 compares executed CPU, console, memory, alignment and CP/M FCB copy fixtures
 with NASM output. It accepts `XLT88`, `ASM86`, `GENCMD`, and `EMU2` overrides.
-Both ASM86 and MASM 3 execution validation cover CP/M-86 and DOS 1.0.
+ASM86, MASM 3 and RASM-86 execution validation cover CP/M-86 and DOS 1.0.
 For ASM86 DOS validation, the test converts the GENCMD combined image into
 a COM file after checking its single-group header and discarding the
 128-byte CMD header and 100h base-page prefix. It retains zero-filled
@@ -376,10 +375,72 @@ conditional assembly suppresses zero-count DUP, including already aligned
 locations. The shared legacy formatting module owns aliases, deferred
 equates and branch expansion. It never modifies the target program.
 
-`make test` runs the emitter comparison matrix for ASM86/MASM 3 and both OS
+`make test` runs the emitter comparison matrix for ASM86/MASM 3/RASM-86 and both OS
 targets. `XLT_EMIT=masm3 XLT_TARGET=msdos python3 tests/emitters.py` selects
 one combination. Additional tool overrides are `MASM3`, `LINK2`, `EXE2BIN`.
 The checks cover the full CPU diagnostic, opcode assembly, flags, forward
 symbols, name collisions, direct memory, zero reserves, alignment and copies
 of 0, 1, 129 and 260 records. This is fixture coverage, not proof of every
 assembler expression or full OS service coverage.
+
+## DRASM86 output (RASM-86)
+
+The planned DRASM86 flavor is implemented for Digital Research's **RASM-86
+1.4a**, the installed relocatable assembler. Use `--emit=drasm86`:
+
+```sh
+./xlt88 --target=msdos --emit=drasm86 examples/hello.asm hello.a86
+pcdev_rasm86 hello
+pcdev_link2 'hello.obj,hello.exe;'
+pcdev_exe2bin hello.exe hello.com
+emu2 hello.com
+```
+
+RASM-86 produces an OBJ, whereas ASM86 produces an H86. The tested packaging
+path uses Microsoft LINK 2.40 and EXE2BIN, preserving the flat origin-100h
+image. For CP/M-86, select `--target=cpm86`, build the same way, then run
+`bin2cmd hello.com hello.cmd` and `emu2 hello.cmd`. The default Digital
+Research LINK-86 EXE layout is not the validated packaging path.
+
+The renderer emits CRLF, an entry label and `END` entry reference. Address
+arithmetic uses label differences within the segment; explicit location
+labels preserve `$` in instructions, data, alignment and deferred equates.
+Aliases, direct-memory formatting and branch expansion share `asmfmt.c`.
+This adds assembler syntax support without changing CPU or OS lowering.
+
+`XLT_EMIT=drasm86 XLT_TARGET=msdos python3 tests/emitters.py` validates one
+combination; omit `XLT_TARGET` for CP/M-86. `RASM86` overrides the assembler
+command. Assembly must report zero errors with no ignored-syntax diagnostics;
+the LINK missing-STACK warning remains expected for the COM layout.
+All four output flavors are implemented and run the arithmetic reference
+suite on both OS targets. The legacy-emitter matrix covers the CPU diagnostic,
+flags, opcode assembly, memory/location expressions, alignment and FCB copies.
+
+## Arithmetic emitter matrix
+
+`make test` runs `tests/arith.py` across NASM, ASM86, MASM 3 and DRASM86,
+each targeting DOS 1.0 and CP/M-86. Every combination uses the same 8,800
+cases and checks both the result and complete PSW against the Python 8080
+reference model: 70,400 comparisons for a full matrix run.
+
+The set covers ADC/SBB/SUB/CMP in register, memory and immediate forms,
+INR/DCR in accumulator, register and memory forms, and DAA. Binary arithmetic
+uses 14 boundary operands with both carry states; INR/DCR cover every byte
+with both carry states; DAA covers every byte and all input AC/C states.
+This is the existing arithmetic case set across every renderer, not exhaustive
+8080 instruction or operand-pair coverage.
+
+Batches contain at most 64 cases, keeping DAA within MASM 3's assembler
+memory limit without reducing coverage. `tests/toolrun.py` shares toolchain
+invocation, strict assembler checks, packaging and execution with the emitter
+fixtures and removes stale build products before each batch. Failures identify
+the emitter, target, operation, operand form and batch/case.
+
+For a focused run:
+
+```sh
+XLT_EMIT=masm3 XLT_TARGET=msdos python3 tests/arith.py
+```
+
+Omit either variable to run all values of that dimension. The tool overrides
+from the emitter fixtures also apply, including `XLT88`, `NASM` and `BIN2CMD`.

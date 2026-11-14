@@ -11,11 +11,11 @@ typedef struct asm_name {
 } asm_name_t;
 typedef struct asm_context {
 	FILE *out;
-	int masm;
+	int masm, relocatable;
 	int memory_byte;
 	asm_name_t *names;
 	size_t count;
-	unsigned long branch, memory;
+	unsigned long branch, memory, location_count;
 	unsigned eval_depth;
 	size_t current_equ;
 	const char *location;
@@ -73,11 +73,14 @@ write_expr(asm_context_t *ctx, const expr_t *tree)
 	case expr_integer: fprintf(out, "%ld", tree->integer); break;
 	case expr_string: fputs(tree->text, out); break;
 	case expr_location:
-		if (ctx->location) fputs(ctx->location, out);
-		else fputs(ctx->masm ? "($-x_entry+100h)" : "(offset $)", out);
+		if (ctx->location) {
+			if (ctx->relocatable) fprintf(out, "(%s-x_entry+100h)", ctx->location);
+			else fputs(ctx->location, out);
+		}
+		else fputs((ctx->masm || ctx->relocatable) ? "($-x_entry+100h)" : "(offset $)", out);
 		break;
 	case expr_symbol:
-		if (ctx->masm) {
+		if (ctx->masm || ctx->relocatable) {
 			fputc('(', out); write_name(ctx, tree->text);
 			fputs(tree->is_equ ? ")" : "-x_entry+100h)", out);
 		} else {
@@ -144,6 +147,12 @@ write_arguments(asm_context_t *ctx, const output_t *event)
 	}
 }
 
+static int
+has_location(const expr_t *tree)
+{
+	return tree && (tree->kind == expr_location || has_location(tree->left) || has_location(tree->right));
+}
+
 static void
 write_asm86(void *context, const output_t *event)
 {
@@ -152,17 +161,28 @@ write_asm86(void *context, const output_t *event)
 	FILE *out = ctx->out;
 	const operand_t *first = &event->operands[0];
 	size_t i;
+	char location[32];
+	ctx->location = NULL;
+	if (ctx->relocatable && (event->kind == output_instruction ||
+	    event->kind == output_data_bytes || event->kind == output_data_words ||
+	    event->kind == output_reserve_bytes) &&
+	    (has_location(event->operands[0].expression) || has_location(event->operands[1].expression))) {
+		snprintf(location, sizeof(location), "p_%lu", ++ctx->location_count);
+		fprintf(out, "%s:\n", location);
+		ctx->location = location;
+	}
 	switch (event->kind) {
 	case output_header:
 		fprintf(out, "; xlt88 target: %s\n", event->text);
 		fputs(ctx->masm ? "x_code segment para public 'CODE'\nassume cs:x_code,ds:x_code,es:x_code,ss:x_code\norg 100h\nx_entry:\n" : "\tcseg\n\torg 100h\n", out);
+		if (ctx->relocatable) fputs("x_entry:\n", out);
 		break;
 	case output_instruction: {
 		unsigned long memory = ctx->memory;
 		for (i = 0; i < 2; ++i) {
 			const operand_t *op = &event->operands[i];
 			if ((op->kind == operand_memory || op->kind == operand_byte_memory) && op->expression)
-				fprintf(out, "a_%lu equ %s\n", ++memory, ctx->masm ? "($-x_entry+100h)" : "offset $");
+				fprintf(out, ctx->relocatable ? "a_%lu:\n" : "a_%lu equ %s\n", ++memory, ctx->masm ? "($-x_entry+100h)" : "offset $");
 		}
 		/* ASM86 cannot relax out-of-range conditional jumps. */
 		for (i = 0; i < sizeof(jumps)/sizeof(jumps[0]); ++i) if (!strcmp(event->text, jumps[i])) break;
@@ -190,7 +210,7 @@ write_asm86(void *context, const output_t *event)
 		if (expr_eval(first->expression, lookup_equ, ctx, -1, &constant)) {
 			if (constant < -32768 || constant > 65535) ctx->failed = 1;
 			fprintf(out, "%s equ %ld", item->name, constant); item->written = 1;
-		} else fprintf(out, "e_%lu equ %s", (unsigned long)ctx->current_equ, ctx->masm ? "($-x_entry+100h)" : "offset $");
+		} else fprintf(out, ctx->relocatable ? "e_%lu:" : "e_%lu equ %s", (unsigned long)ctx->current_equ, ctx->masm ? "($-x_entry+100h)" : "offset $");
 		break;
 	}
 	case output_data_bytes: case output_data_words: case output_reserve_bytes:
@@ -203,7 +223,10 @@ write_asm86(void *context, const output_t *event)
 		if (ctx->masm && event->kind == output_reserve_bytes) fputs(" dup(0)\n\tendif", out);
 		break;
 	case output_alignment:
-		if (ctx->masm) fprintf(out, "\tif ((0-($-x_entry+100h)) and %ld)\n\tdb ((0-($-x_entry+100h)) and %ld) dup(0)\n\tendif", first->value - 1, first->value - 1);
+		if (ctx->relocatable) {
+			unsigned long number = ++ctx->location_count;
+			fprintf(out, "p_%lu:\n\trb ((0-(p_%lu-x_entry+100h)) and %ld)", number, number, first->value - 1);
+		} else if (ctx->masm) fprintf(out, "\tif ((0-($-x_entry+100h)) and %ld)\n\tdb ((0-($-x_entry+100h)) and %ld) dup(0)\n\tendif", first->value - 1, first->value - 1);
 		else fprintf(out, "\trb ((0-(offset $)) and %ld)", first->value - 1);
 		break;
 	case output_comment:
@@ -212,6 +235,7 @@ write_asm86(void *context, const output_t *event)
 	case output_line_end: fputc('\n', out); break;
 	case output_error_comment: ctx->failed = 1; break;
 	}
+	ctx->location = NULL;
 }
 
 static void finish_equ(asm_context_t *, size_t);
@@ -246,9 +270,11 @@ finish_equ(asm_context_t *ctx, size_t index)
 }
 
 int
-asmfmt_render(const target_program_t *program, FILE *out, FILE *diagnostics, int masm)
+asmfmt_render(const target_program_t *program, FILE *out, FILE *diagnostics, asm_flavor_t flavor)
 {
-	asm_context_t ctx = { .out = out, .masm = masm };
+	int masm = flavor == asm_flavor_masm3;
+	const char *name = masm ? "MASM 3" : flavor == asm_flavor_drasm86 ? "RASM-86" : "ASM86";
+	asm_context_t ctx = { .out = out, .masm = masm, .relocatable = flavor == asm_flavor_drasm86 };
 	emitter_t emitter = { &ctx, write_asm86 };
 	size_t i, j;
 	ctx.names = calloc(program->count ? program->count : 1, sizeof(*ctx.names));
@@ -277,7 +303,7 @@ asmfmt_render(const target_program_t *program, FILE *out, FILE *diagnostics, int
 	for (i = 0; i < program->count; ++i) for (j = 0; j < 2; ++j) {
 		const operand_t *op = &program->events[i].operands[j];
 		if (op->kind == operand_branch && !op->text) {
-			fprintf(diagnostics, "xlt88: %s requires a symbolic branch target\n", masm ? "MASM 3" : "ASM86");
+			fprintf(diagnostics, "xlt88: %s requires a symbolic branch target\n", name);
 			free(ctx.names); return 0;
 		}
 	}
@@ -295,8 +321,27 @@ asmfmt_render(const target_program_t *program, FILE *out, FILE *diagnostics, int
 			ctx.location = NULL;
 		}
 	}
-	fputs(masm ? "x_code ends\nend x_entry\n" : "\tend\n", out);
+	fputs(masm ? "x_code ends\nend x_entry\n" : ctx.relocatable ? "\tend x_entry\n" : "\tend\n", out);
 	free(ctx.names);
-	if (ctx.failed) fprintf(diagnostics, "xlt88: %s cannot represent an expression or symbol in this target program\n", masm ? "MASM 3" : "ASM86");
+	if (ctx.failed) fprintf(diagnostics, "xlt88: %s cannot represent an expression or symbol in this target program\n", name);
 	return !ctx.failed && !ferror(out);
+}
+
+int
+asmfmt_dos(const target_program_t *program, FILE *out, FILE *diagnostics, asm_flavor_t flavor)
+{
+	FILE *temporary = tmpfile();
+	int ch, result;
+	if (!temporary) return 0;
+	result = asmfmt_render(program, temporary, diagnostics, flavor);
+	if (result && !fflush(temporary) && !fseek(temporary, 0, SEEK_SET)) {
+		/* DOS-hosted assemblers treat bare LF as whitespace rather than a line ending. */
+		while ((ch = fgetc(temporary)) != EOF) {
+			if (ch == '\n') fputc('\r', out);
+			fputc(ch, out);
+		}
+		result = !ferror(temporary) && !ferror(out);
+	} else result = 0;
+	fclose(temporary);
+	return result;
 }

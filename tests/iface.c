@@ -6,6 +6,7 @@
 #include "trans.h"
 #include "asm86.h"
 #include "masm.h"
+#include "drasm86.h"
 
 static void
 inspect_expression(const expr_t *tree)
@@ -73,6 +74,8 @@ main(void)
 	assert(target_write(&cpm, &nasm));
 	assert(asm86_render(&dos, assembly, stderr));
 	assert(masm_render(&dos, assembly, stderr));
+	assert(drasm86_render(&dos, assembly, stderr));
+	assert(drasm86_render(&cpm, assembly, stderr));
 	assert(masm_render(&cpm, assembly, stderr));
 	assert(asm86_render(&cpm, assembly, stderr));
 	/* A second replay must not consume or mutate the owned target. */
