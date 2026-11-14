@@ -6,6 +6,18 @@
 #include "trans.h"
 
 static void
+inspect_expression(const expr_t *tree)
+{
+	if (!tree) return;
+	if (tree->kind == expr_symbol) {
+		assert(tree->symbol_id > 0);
+		assert(tree->text && tree->text[0]);
+	}
+	inspect_expression(tree->left);
+	inspect_expression(tree->right);
+}
+
+static void
 inspect(void *context, const output_t *event)
 {
 	size_t *count = context;
@@ -14,6 +26,7 @@ inspect(void *context, const output_t *event)
 	for (i = 0; i < 2; ++i) {
 		assert(event->operands[i].resolve == NULL);
 		assert(event->operands[i].symbols == NULL);
+		inspect_expression(event->operands[i].expression);
 	}
 }
 

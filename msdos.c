@@ -1,3 +1,4 @@
+/* Native DOS 1.0 lowering through the shared target builder interface. */
 #include "backend.h"
 
 static void
@@ -47,4 +48,9 @@ bdos(const emitter_t *out, long function)
 	return 1;
 }
 
-const backend_t msdos_backend = { "msdos", bdos, exit_program, NULL };
+const backend_t msdos_backend = {
+	.name = "msdos",
+	.bdos = bdos,
+	.exit_program = exit_program,
+	.stack_segment = NULL
+};

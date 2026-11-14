@@ -13,18 +13,17 @@ and NASM formatting in `nasm.c`. The CLI selects these implementations.
 The current CLI uses an owned source program, a separate conservative
 BDOS argument-recognition pass, CPU/OS lowering into an owned target program,
 and NASM rendering after lowering completes. `--emit=8080` serializes the
-parsed source independently of CPU/OS lowering. Target expressions own copied
-parts with resolved symbol spellings; they do not retain resolver callbacks
-or pointers into the lowering context.
+parsed source independently of CPU/OS lowering. Target expressions are owned trees containing copied symbol spellings and
+stable source-scoped IDs. Both expression emitters use the same parser; NASM
+renders explicit parentheses to retain grouping. EQU definitions own bound
+expression trees and the source layout pass computes addresses where sizes are
+known. Numeric transfers bind to unique source labels at the same offset.
 
-The full design below remains the migration destination. A shared symbol
-table, source-scoped IDs, strict state import/export, and
-preferred-name reconciliation are implemented. Address binding, typed source
-expressions, complete OS-operation annotations, and additional readers/emitters
-are not implemented. References still bind through original names; carrying
-symbol IDs in every expression node remains part of the typed-IR migration.
-The source representation still uses text fields. Expression parts are an
-intermediate representation, not the final expression tree.
+The full design below remains the migration destination. Source instructions
+still contain textual operand fields; full typed source nodes, generated-label
+state, imported address annotations, assembler-map import, complete OS-operation
+annotations, and additional readers/emitters remain future work. Unmatched
+numeric transfers retain their old literal behavior and need manual review.
 
 ### Implemented interface contracts
 
@@ -34,7 +33,7 @@ intermediate representation, not the final expression tree.
 | `emit_normalized_8080` | Borrow source and streams; return nonzero on success |
 | `recognize_os_calls` | Borrow source and value resolver; allocate one known-C value per record, with -1 for unknown; caller frees the array |
 | `symbols_build` | Build an owned source symbol table; return nonzero on success |
-| `symbols_read`, `symbols_write` | Validate/import or export version 1 state through borrowed streams; return nonzero on success |
+| `symbols_read`, `symbols_write` | Validate/import version 1 or 2 and export version 2 state through borrowed streams; return nonzero on success |
 | `lower_named` | Borrow source/shared symbol table/backend; fill an owned target; return zero on success |
 | `lower_8080` | Convenience wrapper building a default symbol table before `lower_named` |
 | `emit_named_8080` | Emit source with preferred symbol names; return nonzero on success |
@@ -228,9 +227,9 @@ identity so source, assembly output, and state cannot accidentally overwrite
 one another. Reading and replacing the same state file is supported after
 its contents have been fully loaded and validated.
 
-### Version 1 state implementation
+### Version 2 state implementation
 
-The current state format is a deliberately conservative subset of the full
+The current state format is a conservative subset of the full
 schema above. It contains `schema_version`, `source_fingerprint`, and `symbols`.
 The fingerprint is FNV-1a over parsed statement fields, including comments and
 record boundaries; it is an identity check, not a security signature. IDs are
@@ -239,8 +238,8 @@ preserved on import. Object field order is unrestricted.
 
 Each entry contains `id`, `original_name`, `preferred_name`, `kind` (`label` or
 `equ`), `definition` (line number), `equ_expression` (source text or null),
-`equ_value` (simple resolved nonnegative constant or null), `source_address`
-and `generated_address` (both null). State uses JSON content in an 8.3 `.sym`
+`equ_value` (resolved signed source value or null), `source_address`
+(known original 8080 offset or null), and `generated_address` (currently null). State uses JSON content in an 8.3 `.sym`
 filename. Only preferred names may be edited. All other fields are checked
 against the current source, and validation is transactional in memory.
 
@@ -252,10 +251,34 @@ Normalized lines that exceed the current reader's 254-character limit produce
 an error. State imports reject unknown fields and schema versions, duplicate
 fields or names, changed definitions, and stale fingerprints.
 
+Version 1 state is accepted with its original value/address checks and upgrades
+to version 2 on export. State stores EQU source text; trees are reconstructed
+and bound against current definitions on load. Source addresses are computed,
+not editable. Generated offsets are never inferred from source offsets.
+
 Changed source currently requires fresh state export. Fine-grained rebinding,
-source-address import, full EQU evaluation, generated symbols in state, and
-expression-tree serialization remain future work. Both files are staged before
+source-address import, generated symbols in state, and expression-tree
+serialization remain future work. Both files are staged before
 publication, but their final replacements are not one atomic transaction.
+
+### Expression and layout implementation
+
+`expr_t` has integer, string, symbol, location, unary, binary and list nodes.
+Symbol leaves own their preferred spelling and carry `symbol_id`. Operators
+have enum identities. The current grammar preserves the supported source
+subset: unary `+ - ~`; multiplicative `* / %`; additive `+ -`; shifts;
+bitwise AND (`AND` or `&`), XOR and OR, in that precedence order. Binary
+operators are left associative. Parentheses override precedence. This is not
+a claim of complete MAC/RMAC expression compatibility. Evaluation uses checked
+host `long` arithmetic; unknown symbol/location values remain unresolved.
+
+`layout.c` starts source layout at 100h, follows ORG, counts supported 8080
+instructions and declarations, and reevaluates forward references until stable.
+DB strings count bytes. DW strings have unknown size pending a dialect contract.
+Unsupported constructs invalidate downstream positions until a known ORG.
+EQU cycles/dependency depth are checked separately. Unstable/self-dependent
+layout exports unknown addresses. Numeric branch aliases at the same address
+require an explicit source name instead of an arbitrary primary label.
 
 ## Interface contracts and inversion of control
 

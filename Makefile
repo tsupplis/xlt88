@@ -1,5 +1,6 @@
 PROG =	xlt88
-OBJS = layout.o expr.o symbols.o state.o xlt88.o dialect.o norm8080.o osrecog.o trans.o emitter.o target.o nasm.o msdos.o cpm86.o
+OBJS = xlt88.o dialect.o symbols.o state.o expr.o layout.o norm8080.o \
+	osrecog.o trans.o emitter.o target.o nasm.o msdos.o cpm86.o
 PYTHON = python3
 
 all: ${PROG}

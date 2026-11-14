@@ -1,3 +1,6 @@
+/* Native CP/M-86 lowering. These hooks append ordinary 8086 instructions
+ * to the target builder; assembler syntax and program storage live elsewhere.
+ * Service coverage is intentionally limited to the cases listed below. */
 #include "backend.h"
 
 static void
@@ -62,4 +65,9 @@ stack_segment(const emitter_t *out)
 	emit(out, output_line_end, NULL, no_operand, no_operand);
 }
 
-const backend_t cpm86_backend = { "cpm86", bdos, exit_program, stack_segment };
+const backend_t cpm86_backend = {
+	.name = "cpm86",
+	.bdos = bdos,
+	.exit_program = exit_program,
+	.stack_segment = stack_segment
+};

@@ -3,11 +3,14 @@
 
 #include "emitter.h"
 
+/* Hooks borrow the output builder. They emit typed events, not assembly text. */
 typedef struct backend {
 	const char *name;
 	/* Return zero when the service has no direct translation. */
 	int (*bdos)(const emitter_t *, long function);
 	void (*exit_program)(const emitter_t *);
+	/* If present, emit segment selection immediately before the CPU layer
+	 * emits MOV SP; no intervening instructions may be inserted. */
 	void (*stack_segment)(const emitter_t *);
 } backend_t;
 
