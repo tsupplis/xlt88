@@ -48,13 +48,19 @@ with tempfile.TemporaryDirectory() as directory:
         result = subprocess.run([str(exe), '--dialect=mac', '--target=cpm86', '--emit='+flavor,
                                  str(source), str(work/'diskout.asm')], capture_output=True)
         diagnostics = result.stderr.decode()
-        assert result.returncode and 'statically proven function' in diagnostics and 'function 46' in diagnostics, diagnostics
+        assert result.returncode == 0 and 'native BDOS pass-through' in diagnostics, diagnostics
         assert 'BDOS 27 returns native ES:BX' in diagnostics and 'BDOS 31 returns native ES:BX' in diagnostics
-        report.append(f'| {flavor} | blocked: dynamic selectors and CP/M 3 function 46; pointer consumers require manual review |')
+        env['EMU2_DEFAULT_DRIVE'] = 'C:'
+        # All four assemblers now pass. A timeout/rejection is a regression,
+        # not a report-only outcome (ASM86's expression stack was repaired).
+        build('diskout', source.read_bytes(), flavor, dialect='mac')
+        outcome = 'translates and assembles; execution requires explicit port review'
+        report.append(f'| {flavor} | {outcome} |')
+        print('DISK7', flavor, outcome, flush=True)
         detail = diagnostics
     report += ['', 'Representative diagnostics:', '', '```text', detail.rstrip(), '```', '',
-               'No xlt88 DISK7 executable or reference-versus-generated transcript match is claimed.',
-               'CP/M 2.2 entry coverage does not include CP/M 3 function 46. The version-dependent branch is not eliminated.',
+               'Generated DISK7 is not executed: pointer segments, BIOS access and exit/stack assumptions still require review. No transcript equivalence is claimed.',
+               'Function 46 now passes through natively. The version-dependent branch is retained; its native availability and semantics remain the responsibility of the port author.',
                'The reference ES overrides remain deliberate target adjustments, not application-specific translator rules.']
 assert all(hashlib.sha256(p.read_bytes()).hexdigest() == digest for p, digest in hashes.items())
 Path(sys.argv[1] if len(sys.argv) > 1 else 'diskref.md').write_text('\n'.join(report) + '\n')

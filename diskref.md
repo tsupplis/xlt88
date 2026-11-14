@@ -18,22 +18,21 @@ Reference CMD size: 5248 bytes (including container/padding).
 
 | Emitter | Result |
 | --- | --- |
-| nasm | blocked: dynamic selectors and CP/M 3 function 46; pointer consumers require manual review |
-| asm86 | blocked: dynamic selectors and CP/M 3 function 46; pointer consumers require manual review |
-| masm3 | blocked: dynamic selectors and CP/M 3 function 46; pointer consumers require manual review |
-| drasm86 | blocked: dynamic selectors and CP/M 3 function 46; pointer consumers require manual review |
+| nasm | translates and assembles; execution requires explicit port review |
+| asm86 | translates and assembles; execution requires explicit port review |
+| masm3 | translates and assembles; execution requires explicit port review |
+| drasm86 | translates and assembles; execution requires explicit port review |
 
 Representative diagnostics:
 
 ```text
-xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1230: BDOS call needs a statically proven function in C: BDOS
-xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1238: BDOS call needs a statically proven function in C: BDOS
+xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1230: native BDOS pass-through: CL selects the target service; native results/segments apply, including differences for functions 6/13; port review required
+xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1238: native BDOS pass-through: CL selects the target service; native results/segments apply, including differences for functions 6/13; port review required
 xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1969: BDOS 31 returns native ES:BX; manual port review required for pointer consumers (segment overrides are not inferred)
-xlt88:2469: BDOS function 46 needs a native port for cpm86
-xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1993: cannot translate BDOS transfer: BDOS
+xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1993: native BDOS pass-through: CL selects the target service; native results/segments apply, including differences for functions 6/13; port review required
 xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:2009: BDOS 27 returns native ES:BX; manual port review required for pointer consumers (segment overrides are not inferred)
 ```
 
-No xlt88 DISK7 executable or reference-versus-generated transcript match is claimed.
-CP/M 2.2 entry coverage does not include CP/M 3 function 46. The version-dependent branch is not eliminated.
+Generated DISK7 is not executed: pointer segments, BIOS access and exit/stack assumptions still require review. No transcript equivalence is claimed.
+Function 46 now passes through natively. The version-dependent branch is retained; its native availability and semantics remain the responsibility of the port author.
 The reference ES overrides remain deliberate target adjustments, not application-specific translator rules.

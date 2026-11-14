@@ -16,6 +16,12 @@ exit_program(const emitter_t *out)
 }
 
 static void
+native_bdos(const emitter_t *out)
+{
+	instruction(out, "int", value(operand_interrupt, 0xe0), no_operand);
+}
+
+static void
 reset_call(const emitter_t *out, long function)
 {
 	instruction(out, "mov", operand(operand_register, "cl"), value(operand_immediate, function));
@@ -204,5 +210,6 @@ const backend_t cpm86_backend = {
 	.name = "cpm86",
 	.bdos = bdos,
 	.exit_program = exit_program,
-	.stack_segment = stack_segment
+	.stack_segment = stack_segment,
+	.native_bdos = native_bdos
 };

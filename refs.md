@@ -6,8 +6,8 @@ All three assembled with zero errors using ASM86 1.1N2. VTL-2 reference executio
 now passes startup, arithmetic, variable assignment and exit under the repeatable
 `make vtlbench` benchmark; see vtlbench.md. WASH now passes five reference
 transcript comparisons with unchanged translated source on four CP/M-86 emitters;
-DISK7 has four repeatable reference-only scenarios (diskref.md); its unchanged
-source remains blocked.
+DISK7 has four repeatable reference-only scenarios (diskref.md); its unchanged source now translates; assembly and port readiness are recorded
+separately in diskref.md.
 These are comparison inputs, not xlt88 output.
 
 The supplied DISK7 preparation script compensates for xlt86 reader limitations:
@@ -25,7 +25,7 @@ explicit rather than being patched by program name.
 | --- | --- | --- | --- |
 | examples/vtl2.asm | examples/ref/vtl2.a86 | 809db9dd5d2b | Interactive and script acceptance pass on both targets, all four emitters; fixed ORG 0800h retained |
 | examples/wash15.asm | examples/ref/was15.a86 | 51fc25cb6fd9 | Five unchanged-source transcript scenarios pass on CP/M-86, all four emitters; DOS FCB analysis remains blocked |
-| examples/disk7.mac | examples/ref/disk7.a86 | a1c87a89c80f | Reference startup/browse/length/view pass; source blocked by dynamic selectors and CP/M 3 call 46; 27/31 consumers need segment review |
+| examples/disk7.mac | examples/ref/disk7.a86 | a1c87a89c80f | Reference scenarios pass; source translates; NASM/MASM3/RASM-86 assemble, ASM86 times out; native pointer consumers need review |
 
 ## VTL-2: address constraints and segments
 
@@ -66,8 +66,8 @@ have 8080 alternatives. Syntax includes `7$7`, embedded dollar signs in names,
 `$-MACRO` listing control, macro parameters and a label on ORG. The explicit MAC reader now handles these forms and normalises the unchanged
 source. Independent fixtures exercise the same rules across all emitters.
 The reference remains a comparison target; no preprocessing patch or reference
-assembly is substituted for translated source. Native lowering still reports
-dynamically selected BDOS calls and CP/M 3 function 46. Native 27/31 calls now
+assembly is substituted for translated source. Native lowering now warns and passes through dynamically selected calls and
+CP/M 3 function 46. Native 27/31 calls now
 emit ES:BX with explicit consumer-review diagnostics. Their segment provenance
 is not inferred. tests/diskref.py records the remaining blockers and reference
 scenarios; no generated DISK7 execution is claimed.
@@ -81,3 +81,25 @@ DISK7 still needs pointer/segment provenance; PILOT needs monitor ports. MAC
 parsing, service recognition and segmented layout remain distinct requirements.
 Difficult cases may need explicit post-translation edits. Reference patches
 must never become application-specific translation rules.
+
+
+## What the supplied xlt86 output demonstrates
+
+DISK7's TABL/NOTAB sites use a directly emitted INT 224 after loading the
+service selector from memory. The reference also retains GETVERS, the branch
+to FREE20, and the function-46 INT 224 in the other branch. Thus these sites
+are passed through to the native OS rather than rejected for lack of a proven
+selector or for lying outside CP/M 2.2. This is visible in the supplied target
+reference; the local crossdev xlt86 command reference also documents CALL 5
+as INT 224.
+
+The user's original-to-patched diff shows that xlt86's original 27/31 consumers
+used ordinary near accesses. ES overrides were manual additions. The working
+reference therefore demonstrates a successful explicit port, not automatic
+segment-provenance analysis by xlt86.
+
+This motivated the native CP/M-86 pass-through policy with review warnings
+for unknown selectors and native extensions. It retains native contracts
+without promising CP/M-80 semantics; functions 6 and 13 demonstrate why that distinction matters. DOS
+still requires service-specific lowering. This policy is now implemented through an optional backend hook; known
+service adaptations remain in place and DOS remains strict.

@@ -57,8 +57,10 @@ emit_named_8080(const source_program_t *program, const symbol_table_t *symbols, 
 		}
 		if (stmt->comment[0])
 			fprintf(out, "\t%s", stmt->comment);
-		fputc('\n', out);
+		fputs("\r\n", out);
 	}
+	/* Normalized source is also input for native CP/M assemblers. */
+	fputc(0x1a, out);
 	return !ferror(out);
 too_long:
 	fputs("xlt88: invalid normalized expression or source line/field limit exceeded\n", diagnostics);

@@ -7,7 +7,7 @@ Translate/assemble counts cover four emitters × two OS targets. Only the two ex
 | Source | SHA256 prefix | Reader | Normalize | Translate | Assemble | Execute |
 | --- | --- | --- | --- | --- | --- | --- |
 | balloon.asm | fad691a121ea | intel | pass | 2/8 | 2/8 | not run |
-| disk7.mac | fb55c1cdb24c | mac | pass | 0/8 | 0/8 | not run |
+| disk7.mac | fb55c1cdb24c | mac | pass | 4/8 | 4/8 | not run |
 | forth.asm | a44d9f568d61 | m80 | pass | 8/8 | 8/8 | not run |
 | hello.asm | 774bec9c4bfe | intel | pass | 8/8 | 8/8 | 8/8 |
 | pilot.asm | bc015288f546 | intel | pass | 0/8 | 0/8 | not run |
@@ -38,18 +38,12 @@ drasm86/msdos: xlt88: RASM-86 requires a symbolic branch target
 
 ## disk7.mac
 
-The MAC subset now normalizes the unchanged source, including dollar separators, macros, labelled directives and forward SET. Translation remains blocked by dynamic BDOS functions and CP/M 3 function 46. Native 27/31 results require explicit segment-aware consumer review. tests/diskref.py separately exercises four reference-only scenarios. Reference: examples/ref/disk7.a86.
+The MAC subset now normalizes the unchanged source, including dollar separators, macros, labelled directives and forward SET. CP/M-86 translation now passes dynamic calls and native extensions through with warnings. Assembly and execution readiness remain separate stages. Native 27/31 results require explicit segment-aware consumer review. tests/diskref.py separately exercises four reference-only scenarios. Reference: examples/ref/disk7.a86.
 
 Observed blocker samples (at most three diagnostic lines per combination):
 
 ```text
 nasm/msdos: xlt88: DOS FCB analysis: unrecognized subroutine may expose FCB storage
-```
-
-```text
-nasm/cpm86: xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1230: BDOS call needs a statically proven function in C: BDOS
-xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1238: BDOS call needs a statically proven function in C: BDOS
-xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1969: BDOS 31 returns native ES:BX; manual port review required for pointer consumers (segment overrides are not inferred)
 ```
 
 ## forth.asm

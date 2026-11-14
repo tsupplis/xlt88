@@ -1,4 +1,4 @@
-"""Memory-loaded service candidates: all valid arms and unmatched termination."""
+"""Memory-loaded service candidates: valid arms and target-specific unmatched behavior."""
 from pathlib import Path
 import subprocess
 import tempfile
@@ -48,14 +48,15 @@ with tempfile.TemporaryDirectory() as directory:
             mutation = 'lxi h,selector\n mvi m,255'
             build('memsvc', source.replace('CHOICE', '0').replace('MUTATE', mutation), flavor)
             output = execute('memsvc')
-            assert b'STRING' not in output and b'DONE' not in output, output
+            assert b'STRING' not in output, output
+            assert (b'DONE' in output) == (target == 'cpm86'), output
             # A singleton candidate still needs a check.
             singleton = source.replace('mvi a,2\n', 'mvi a,9\n')
             build('memsvc', singleton.replace('CHOICE', '1').replace('MUTATE', mutation), flavor)
-            assert b'DONE' not in execute('memsvc')
+            assert (b'DONE' in execute('memsvc')) == (target == 'cpm86')
             print(target, flavor, 'stored selectors: both arms, alias mutation and singleton guard passed', flush=True)
     for bad in (source.replace('mvi a,2\n', 'in 1\n'), source.replace('mvi a,2\n', 'mvi a,38\n')):
         (work / 'bad.80').write_text(bad.replace('CHOICE', '1').replace('MUTATE', ''))
         (work / 'keep.asm').write_text('preserve')
-        result = subprocess.run([str(exe), '--target=cpm86', str(work / 'bad.80'), str(work / 'keep.asm')], capture_output=True)
+        result = subprocess.run([str(exe), '--target=msdos', str(work / 'bad.80'), str(work / 'keep.asm')], capture_output=True)
         assert result.returncode and (work / 'keep.asm').read_text() == 'preserve', result.stderr

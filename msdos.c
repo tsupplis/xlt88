@@ -2,6 +2,7 @@
 #include "backend.h"
 #include "fcbapi.h"
 #include "reset.h"
+#include "conbuf.h"
 
 static void file_int(const emitter_t *, long);
 
@@ -20,6 +21,7 @@ bdos(const emitter_t *out, long function, unsigned long site)
 	(void)site;
 	const char *service;
 	if (function == 13) { reset_disks(out, file_int, 1, site); return 1; }
+	if (function == 10) { dos_console_buffer(out, site); return bdos_buffered_result; }
 
 	switch (function) {
 	case 1:

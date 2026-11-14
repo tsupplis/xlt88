@@ -584,6 +584,23 @@ source_boundary(translation_t *ctx, const char *text)
 }
 
 static void
+native_fallback(translation_t *ctx)
+{
+	const char *message = "native BDOS pass-through: CL selects the target service; "
+	    "native results/segments apply, including differences for functions 6/13; port review required";
+	source_report(ctx->diagnostics, ctx->record, message);
+	ctx->target->native_bdos(ctx->out);
+	emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+	emit(ctx->out, output_comment,
+	    "native BDOS pass-through: native results/segments; port review required",
+	    no_operand, no_operand);
+	emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+	emit(ctx->out, output_comment,
+	    "CL selects the service; unknown calls retain native function 6/13 behavior",
+	    no_operand, no_operand);
+}
+
+static void
 native_service(translation_t *ctx, long function)
 {
 	int result;
@@ -594,10 +611,15 @@ native_service(translation_t *ctx, long function)
 	result = ctx->fcb_call && ctx->target->file_call ?
 	    ctx->target->file_call(ctx->out, function, ctx->source_line) :
 	    ctx->target->bdos(ctx->out, function, ctx->source_line);
-	if (!result) {
+	if (!result && ctx->target->native_bdos) {
+		native_fallback(ctx);
+	} else if (!result) {
 		fprintf(ctx->diagnostics, "xlt88:%lu: BDOS function %ld needs a native port for %s\n",
 		    ctx->source_line, function, ctx->target->name);
 		diagnose(ctx, "cannot translate BDOS transfer: ", ctx->statement.first);
+	} else if (result == bdos_buffered_result) {
+		source_report(ctx->diagnostics, ctx->record,
+		    "DOS buffered input: native editing/CR completion; capacities 0..254 supported; 255 reports an error and exits");
 	} else if (result == bdos_far_result) {
 		char message[256];
 		snprintf(message, sizeof(message), "BDOS %ld returns native ES:BX; manual port review required for pointer consumers (segment overrides are not inferred)", function);
@@ -608,8 +630,8 @@ native_service(translation_t *ctx, long function)
 }
 
 /* Proven sets may omit the final comparison. Memory-derived candidates
- * check every arm and terminate on a mismatch; no candidate is treated as
- * an exhaustive alias proof. Comparisons preserve the native input flags. */
+ * check every arm and use the backend fallback on a mismatch (DOS exits).
+ * No candidate is treated as an exhaustive alias proof. Comparisons preserve the native input flags. */
 static void
 service_dispatch(translation_t *ctx)
 {
@@ -638,8 +660,11 @@ service_dispatch(translation_t *ctx)
 		}
 	}
 	if (ctx->bdos_values.guarded) {
-		fprintf(ctx->diagnostics, "xlt88:%lu: memory-loaded BDOS selector checked at runtime; unmatched values terminate the program\n", ctx->source_line);
-		ctx->target->exit_program(ctx->out);
+		if (ctx->target->native_bdos) native_fallback(ctx);
+		else {
+			fprintf(ctx->diagnostics, "xlt88:%lu: memory-loaded BDOS selector checked at runtime; unmatched values terminate the program\n", ctx->source_line);
+			ctx->target->exit_program(ctx->out);
+		}
 		emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
 	}
 	emit(ctx->out, output_internal_definition, "svc", value(operand_immediate, done), no_operand);
@@ -679,14 +704,18 @@ transfer(translation_t *ctx, int tail)
 		break;
 	case 5:
 		if (!ctx->bdos_values.count) {
-			diagnose(ctx, "BDOS call needs a statically proven function in C: ", ctx->statement.first);
+			if (ctx->target->native_bdos) native_fallback(ctx);
+			else {
+				diagnose(ctx, "BDOS call needs a statically proven function in C: ", ctx->statement.first);
+				break;
+			}
 		} else {
 			if (ctx->bdos_values.count == 1 && !ctx->bdos_values.guarded) native_service(ctx, ctx->bdos_values.values[0]);
 			else service_dispatch(ctx);
-			if (tail && ctx->bdos_function != 0) {
-				emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
-				ret(ctx);
-			}
+		}
+		if (tail && ctx->bdos_function != 0) {
+			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+			ret(ctx);
 		}
 		break;
 	default:

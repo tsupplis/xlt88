@@ -3,7 +3,7 @@
 The project is a native translator, with no CP/M machine emulation or universal
 BDOS compatibility runtime. The native CP/M-86 entry set is now complete;
 automatic translation of arbitrary programs and full behavioral validation are
-not complete. This snapshot is a pause point before choosing more work.
+not complete. CMD allocation policy remains deferred for a separate design review.
 
 ## Implementation and evidence
 
@@ -16,7 +16,7 @@ not complete. This snapshot is a pause point before choosing more work.
 | CP/M-86 BDOS | All 39 non-reserved CP/M 2.2 native entry points emit and assemble through all four emitters | 27/31 consumers require explicit segment-aware port review. Device, IOBYTE, user/protection state and zero-fill execution limits remain; see api.md |
 | DOS BDOS mapping | 24/39 entries; nine use validated FCB plans | Buffered input, directory-result conversion, user/device/attribute/disk-policy differences and unsupported calls; native DOS-only API inventory |
 | Symbols and placement | Editable name/EQU state, source identities, fixed-origin planning and branch-size optimization | State rebinding after source edits, explicit alignment contracts, segment/provenance analysis and assembler-map feedback |
-| Generic recognition | Bounded register facts and guarded DS 1 memory-loaded selectors | Broader control-flow/call effects; unmatched guarded values terminate as diagnosed. No general alias proof |
+| Generic recognition | Bounded register facts and guarded DS 1 memory-loaded selectors | Broader control-flow/call effects; CP/M-86 unmatched values pass through natively with warnings, DOS exits. No general alias proof |
 
 The CP/M-86 count is native entry coverage. For 27/31 the emitted call is tested,
 but source dereferences are not automatically converted to use ES. They emit
@@ -28,8 +28,8 @@ both a diagnostic and a target comment requiring review. Do not read 39/39 as
 | Program | Working reference | xlt88 evidence | Main gap |
 | --- | --- | --- | --- |
 | VTL-2 | Direct xlt86 reference | Interactive and script-file comparisons pass on both targets, all four emitters | More language/input boundaries and explicit native-memory assumptions |
-| WASH15 | xlt86 plus supplied manual target patches | Five complete console transcripts match on CP/M-86, all four emitters; source and reference unchanged | File mutation/device/drive workflows; DOS FCB representation; real-hardware interrupt policy |
-| DISK7 | xlt86 plus supplied preprocessing and target patches | Reference-only exit, browse, length and view pass twice; original MAC input parses | Two unresolved dynamic selectors, CP/M 3 function 46, explicit 27/31 segment-aware consumers; no generated executable comparison yet |
+| WASH15 | xlt86 plus supplied manual target patches | Five console scenarios plus seven file-operation/cancellation scenarios match on CP/M-86, all four emitters; source/reference unchanged | Copy is layout-sensitive: reference/NASM time out in probes; three other emitters complete. DOS FCB representation, device/drive and interrupt-policy work remain |
+| DISK7 | xlt86 plus supplied preprocessing and target patches | Four reference-only scenarios pass; unchanged source translates and assembles with all four CP/M-86 emitters | Native 27/31 consumers, BIOS/memory/exit assumptions need port review; generated code not executed |
 | Hello / CPU diagnostic | Independent expected outputs | Both targets, all four emitters execute | Broaden instruction coverage independently |
 | Forth | Explicit console-only source port | Console/arithmetic/definition/exit acceptance on both targets | Original disk/printer/BIOS dependencies |
 | PILOT / Tiny BASIC / Balloon | No passing whole-program acceptance in this batch | Parsing/translation blockers recorded in corpus.md | Monitor hooks, restart bodies/layout/FCBs or machine-specific hardware, respectively |
@@ -37,7 +37,7 @@ both a diagnostic and a target comment requiring review. Do not read 39/39 as
 WASH CMD sizes (container and padding included): reference 3,840 bytes;
 ASM86 output 4,352 bytes (+13.3%); NASM/MASM3/RASM-86 output 4,608 bytes (+20%).
 These are footprint measurements, not instruction-count or equivalence claims.
-DISK7's reference is 5,248 bytes; there is no comparable xlt88 binary yet.
+DISK7's reference is 5,248 bytes; generated assembly success is not execution equivalence.
 
 ## Regression approach
 
@@ -54,15 +54,44 @@ The reference patches remain explicit port decisions; they are not rules keyed
 to program names. The far-pointer ABI tests deliberately use test-only manual
 consumer adjustments and are labelled accordingly.
 
-## Proposed next batch — not started
+## Current batch and next decisions
 
-1. Extend WASH reference comparison to copy, rename, delete, cancellation and
-   failure paths, comparing file contents as well as console output.
-2. Audit DISK7's dynamic selectors and version-dependent function 46 path.
-   Decide which facts support a generic rule and which require an explicit
-   CP/M-86 port. Keep its segment edits visible and reviewable.
-3. Triage WASH DOS FCB and search-result assumptions before implementing more
-   conversions. Do not assume native DOS directory results are CP/M entries.
+The native pass-through policy is implemented for CP/M-86, with source and
+assembly warnings. Known calls retain their adaptations; unknown calls have
+native contracts. DOS remains strict. The 39/39 and 24/39 entry counts do not
+increase because a native extension can now pass through.
+
+WASH has seven additional exact transcript/file comparisons. Its copy-completion
+probes expose limits in the original allocation assumptions; see washfile.md.
+DOS blockers have been analyzed without loosening the FCB audit; see washdos.md.
+DISK7 was treated as the agreed diagnostic checkpoint, not a whole-program port.
+
+The explicit test-only WASH allocation port now passes 18 copy/replace cases
+per emitter, plus directory-overflow rejection with files unchanged. Small
+allocation limits are simulated base-page descriptors with canary checks;
+these are not actual CMD allocation tests. See washport.md. The original
+source/reference comparisons remain separate and unchanged.
+
+ASM86's loop was an expression-evaluator stack overflow in the assembler.
+Increasing its private stack from 600 to 2048 bytes resolves DISK7 assembly.
+All non-NASM emitters now write CRLF and final Ctrl-Z; NASM retains LF.
+
+Next work:
+
+1. Expand DOS functionality with buffered console input (BDOS 10), including
+   capacity and carriage-return semantics.
+2. Implement generic object-declaration discovery for labels separated from
+   their FCB storage records. Keep metadata and subroutine-effects checks strict.
+3. Add a first usable annotated 8080 COM reader: origin 0100h, byte-accurate
+   decoding/provenance, code/data and pointer annotations, editable address
+   labels, and end-to-end fixtures through the shared pipeline. COM reading
+   is currently planned, not partially implemented; arbitrary binary recovery
+   is not the completion criterion.
+
+DOS directory-result conversion and DISK7's manual segment/BIOS adjustments
+remain subsequent work.
+
+CMD sizing/allocation policy remains deferred for a separate design discussion.
 
 Implicit alignment inference remains later work. First record explicit placement
 constraints and diagnostics, following porting.md. There is no reason to force
@@ -70,3 +99,37 @@ hardware, segment or algorithmic policy choices into speculative heuristics.
 
 Detailed evidence: api.md, progress.md, wash.md, diskref.md, vtlbench.md and
 corpus.md. Porting guidance: porting.md.
+
+
+Prior batch validation: the full make test gate passed, including the
+70,400 arithmetic and 8,192 AND/PSW cases, native far-result tests, VTL-2 on both
+targets, WASH transcript comparisons and DISK7 reference-only acceptance.
+The additional full-entry assembly fixture passed separately on all four
+emitters and is included in future make test runs. Strict C99 compilation,
+Clang analysis and focused ASan/UBSan far-result/service-dispatch tests passed.
+The corpus report was regenerated. Original program and reference files were
+not modified. Current-batch validation is recorded below.
+
+
+Previous batch validation: make test completed successfully, including 70,400
+arithmetic/result/PSW and 8,192 AND/PSW cases, VTL-2 on both targets, all twelve
+WASH comparison scenarios, and the DISK7 diagnostic checkpoint. The latter
+records an ASM86 timeout rather than claiming assembly success. WASH copy
+probes record reference/NASM timeouts; ASM86/MASM3/DRASM86 additionally pass
+513-record copies with exact contents and source preservation.
+
+Strict C99 compilation, Clang analysis and focused ASan/UBSan native-call and
+selector tests passed. The final extension-continuation tests passed without
+assuming that emu2 rejects function 46. Wrapper timeouts now stop the spawned
+process group; a focused timeout check and the final checkpoint exercised it.
+The corpus and status reports are refreshed. Original examples and references
+remain unchanged. This historical validation predates the ASM86 repair and
+the WASH explicit-port checks above.
+
+Latest validation: the full `make test` gate passed after the assembler repair
+and text-format fixes. All four DISK7 assembly checks passed. The new WASH
+explicit-port test passed separately on all four emitters and is registered
+in `make test` for subsequent runs. The refreshed corpus records DISK7 at
+4/8 translate and 4/8 assemble combinations (all four CP/M-86 emitters; DOS
+remains blocked). Byte-format and far-pointer tests also passed after the
+test harness format correction. No original examples or references changed.

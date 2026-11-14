@@ -352,11 +352,12 @@ asmfmt_dos(const target_program_t *program, FILE *out, FILE *diagnostics, asm_fl
 	if (!temporary) return 0;
 	result = asmfmt_render(program, temporary, diagnostics, flavor);
 	if (result && !fflush(temporary) && !fseek(temporary, 0, SEEK_SET)) {
-		/* DOS-hosted assemblers treat bare LF as whitespace rather than a line ending. */
+		/* CP/M and DOS assembly text uses CRLF records and a Ctrl-Z EOF. */
 		while ((ch = fgetc(temporary)) != EOF) {
 			if (ch == '\n') fputc('\r', out);
 			fputc(ch, out);
 		}
+		fputc(0x1a, out);
 		result = !ferror(temporary) && !ferror(out);
 	} else result = 0;
 	fclose(temporary);

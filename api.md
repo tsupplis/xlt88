@@ -315,3 +315,20 @@ all four emitters. There are now 39/39 native CP/M-86 entry-point lowerings. Two
 require pointer-consumer port review; this is not 39/39 automatic flat-memory
 source contracts or complete behavioral validation. Remaining execution limits
 in the table, including IOBYTE/protection/user state and zero fill, still apply.
+
+
+## CP/M-86 native pass-through policy
+
+Unknown selectors and known numbers outside the supported CP/M 2.2 set now
+emit raw INT E0h through the backend's optional native hook. Unmatched memory
+candidates use the same fallback. Diagnostics and assembly comments require
+port review. No ES restoration, result adaptation or function-availability
+claim accompanies that raw call. Known supported entries keep their explicit
+lowerings; DOS continues to reject unknown/unsupported services.
+
+This distinction matters for 6 (CP/M-86 FE means status) and 13 (native reset
+alone does not establish the translated source drive/DMA contract). It also
+matters for far results, termination parameters and native extensions such as
+46. Pass-through is not additional automatic source-service coverage.
+`tests/native.py` exercises these boundaries and tail returns; `farptr.py`
+checks both known and dynamic far results using explicit test-only consumers.

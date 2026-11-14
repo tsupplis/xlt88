@@ -1,5 +1,5 @@
 PROG =	xlt88
-OBJS = reset.o fcbdef.o fcbaddr.o flags.o mexpr.o macro.o m80.o mac.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o regions.o norm8080.o \
+OBJS = conbuf.o storage.o reset.o fcbdef.o fcbaddr.o flags.o mexpr.o macro.o m80.o mac.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o regions.o norm8080.o \
 	osrecog.o trans.o emitter.o target.o shrink.o nasm.o asm86.o asmfmt.o masm.o drasm86.o msdos.o cpm86.o
 PYTHON = python3
 
@@ -37,6 +37,7 @@ test: ${PROG} tests/iface tests/expr tests/readers tests/shrink tests/osrecog te
 	./tests/flags
 	./tests/fcbaddr
 	${PYTHON} tests/shrink.py
+	${PYTHON} tests/textfmt.py
 	${PYTHON} tests/flagflow.py
 	${PYTHON} tests/andlive.py
 	${PYTHON} tests/login.py
@@ -67,6 +68,7 @@ test: ${PROG} tests/iface tests/expr tests/readers tests/shrink tests/osrecog te
 	${PYTHON} tests/flow.py
 	${PYTHON} tests/ossets.py
 	${PYTHON} tests/memsvc.py
+	${PYTHON} tests/native.py
 	${PYTHON} tests/devices.py
 	${PYTHON} tests/regions.py
 	${PYTHON} tests/console.py
@@ -77,6 +79,7 @@ test: ${PROG} tests/iface tests/expr tests/readers tests/shrink tests/osrecog te
 	${PYTHON} tests/fileops.py
 	${PYTHON} tests/randio.py
 	${PYTHON} tests/dosfcb.py
+	${PYTHON} tests/storage.py
 	${PYTHON} tests/fcbflow.py
 	${PYTHON} tests/fcbdef.py
 	${PYTHON} tests/dosrand.py
@@ -86,6 +89,8 @@ test: ${PROG} tests/iface tests/expr tests/readers tests/shrink tests/osrecog te
 	${PYTHON} tests/vtlbench.py vtlbench.md
 	${PYTHON} tests/vtlscr.py
 	${PYTHON} tests/wash.py wash.md
+	${PYTHON} tests/washfile.py washfile.md
+	${PYTHON} tests/washport.py washport.md
 	${PYTHON} tests/diskref.py diskref.md
 
 .PHONY: all clean test
@@ -162,6 +167,9 @@ fcbdef.o fcb.o: fcbdef.h
 fcbdef.o: fcbaddr.h symbols.h dialect.h
 
 fcb.o fcbdef.o msdos.o: fcbapi.h
+storage.o fcb.o: storage.h
 
 reset.o cpm86.o msdos.o: reset.h
 reset.o: emitter.h
+
+conbuf.o msdos.o: conbuf.h emitter.h

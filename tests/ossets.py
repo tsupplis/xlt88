@@ -38,6 +38,6 @@ with tempfile.TemporaryDirectory() as directory:
     for text in (source.replace('mvi a,2','lda msg'), source.replace('mvi a,2','mvi a,38'), overflow):
         (work/'bad.80').write_text(text.replace('CHOICE','1'))
         (work/'out.asm').write_text('preserve')
-        result = subprocess.run([str(exe),'--target=cpm86',str(work/'bad.80'),str(work/'out.asm')],capture_output=True)
+        result = subprocess.run([str(exe),'--target=msdos',str(work/'bad.80'),str(work/'out.asm')],capture_output=True)
         assert result.returncode and (work/'out.asm').read_text() == 'preserve', result.stderr
-print('Unknown and unsupported alternatives rejected atomically')
+print('DOS unknown and unsupported alternatives rejected atomically')

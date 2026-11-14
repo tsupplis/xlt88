@@ -84,7 +84,7 @@ stage_output(const char *path, char **temporary)
 	memcpy(*temporary + directory, "xlXXXXXX", sizeof("xlXXXXXX"));
 	fd = mkstemp(*temporary);
 	if (fd < 0) return NULL;
-	stream = fdopen(fd, "w");
+	stream = fdopen(fd, "wb");
 	if (!stream) close(fd);
 	return stream;
 }

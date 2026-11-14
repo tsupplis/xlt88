@@ -58,9 +58,9 @@ with tempfile.TemporaryDirectory() as directory:
     report += ['', '```text', diagnostics.rstrip(), '```', '',
                '## Remaining porting work', '',
                '- Interrupt policy: the original disables interrupts; the patched reference explicitly enables them after stack setup. Original DI is preserved. Emulator transcript passes do not validate hardware interrupt policy.',
-               '- Selector dispatch uses direct-store candidates with checks on every arm. Unmatched runtime selectors terminate; no memory alias proof is claimed.',
+               '- Selector dispatch uses direct-store candidates with checks on every arm. Unmatched CP/M-86 selectors use warned native pass-through; no memory alias proof is claimed.',
                '- Native reset/select/DMA/search implement reset without simulated drive state. Reset state tests live in allreset.py; protected-drive state still needs emulator support.',
-               '- Inline strings and code-label data access are exercised by these transcripts. Copy/delete/rename, devices and drive-switch workflows still need separate WASH scenarios.',
+               '- Inline strings and code-label data access are exercised by these transcripts. Seven additional file-operation/cancellation comparisons are in washfile.md; successful copy has separate reference limitations. Devices and drive-switch workflows remain.',
                '- DOS needs directory-result and explicit FCB-field translation.',
                '', 'No program-name exception or source patch has been added.']
 assert all(hashlib.sha256(path.read_bytes()).hexdigest() == digest for path, digest in hashes.items())

@@ -4,6 +4,7 @@
 #include "fcbaddr.h"
 #include "fcbapi.h"
 #include "fcbdef.h"
+#include "storage.h"
 
 static int
 equal(const char *a, const char *b)
@@ -39,8 +40,8 @@ static long
 object_size(const source_program_t *source, const symbol_table_t *symbols, const symbol_t *object)
 {
 	long size = 0;
-	if (object->line && object->line <= source->count)
-		symbols_eval(symbols, source->records[object->line - 1].statement.first, -1, &size);
+	size_t record;
+	if (!storage_find(source, symbols, object, &record, &size)) return 0;
 	return size;
 }
 
@@ -155,10 +156,8 @@ fcb_analyze(const source_program_t *source, const symbol_table_t *symbols,
 	for (j = 0; j < symbols->count; ++j) if (objects[j]) {
 		const symbol_t *object = &symbols->items[j];
 		long size;
-		i = object->line - 1;
 		problem = "FCB must have dedicated DS storage of at least 33 bytes";
-		if (object->source_address < 0 || i >= count || !equal(source->records[i].statement.opcode, "ds") ||
-		    !symbols_eval(symbols, source->records[i].statement.first, -1, &size) || size < 33 || size > 65536 - object->source_address) goto done;
+		if (!storage_find(source, symbols, object, &i, &size) || size < 33) goto done;
 		plan->grow[i] = size < 36;
 		allowed[i] = 1;
 		/* Another label at the object address is an untracked alias. */
@@ -197,6 +196,7 @@ fcb_analyze(const source_program_t *source, const symbol_table_t *symbols,
 		/* No control transfer may enter the middle of the audited copier. */
 		if (transfer(stmt) && (dest = binding(symbols, stmt->first)) && !dest->is_equ) {
 			size_t entry = dest->line - 1;
+			while (entry < count && !source->records[entry].statement.opcode[0]) ++entry;
 			if (entry < count && (equal(source->records[entry].statement.opcode, "db") ||
 			    equal(source->records[entry].statement.opcode, "dw") || equal(source->records[entry].statement.opcode, "ds"))) {
 				problem = "transfer to data cannot be audited"; goto done;
@@ -268,11 +268,11 @@ fcb_analyze(const source_program_t *source, const symbol_table_t *symbols,
 			size_t load = previous(source, previous(source, i));
 			const symbol_t *buffer = load < count ? binding(symbols, source->records[load].statement.second) : NULL;
 			long size;
+			size_t storage;
 			problem = "DMA must reference dedicated DS storage of at least 128 bytes";
 			if (!buffer || objects[buffer->id - 1] || !equal(source->records[load].statement.opcode, "lxi") ||
 			    !equal(source->records[load].statement.first, "d") ||
-			    !equal(source->records[buffer->line - 1].statement.opcode, "ds") ||
-			    !symbols_eval(symbols, source->records[buffer->line - 1].statement.first, -1, &size) || size < 128) goto done;
+			    !storage_find(source, symbols, buffer, &storage, &size) || size < 128) goto done;
 		}
 
 		/* Conservative first slice: only the proved copier may write memory.

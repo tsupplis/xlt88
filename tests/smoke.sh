@@ -134,10 +134,15 @@ ASM
 entry:  call 5
         end
 ASM
-    if "$root/xlt88" --target="$target" ambiguous.80 ambiguous.asm 2> ambiguous.err; then
-        exit 1
+    if [ "$target" = cpm86 ]; then
+        "$root/xlt88" --target="$target" ambiguous.80 ambiguous.asm 2> ambiguous.err
+        grep -F 'native BDOS pass-through' ambiguous.err
+    else
+        if "$root/xlt88" --target="$target" ambiguous.80 ambiguous.asm 2> ambiguous.err; then
+            exit 1
+        fi
+        grep -F 'xlt88:2: BDOS call needs' ambiguous.err
     fi
-    grep -F 'xlt88:2: BDOS call needs' ambiguous.err
 
     cat > transfers.80 <<'ASM'
         jmp 0+5
@@ -149,8 +154,12 @@ ASM
     if "$root/xlt88" --target="$target" transfers.80 transfers.asm 2> transfers.err; then
         exit 1
     fi
-    grep -F 'xlt88:1: BDOS call needs a statically proven function in C: 0+5' transfers.err
-    grep -F 'xlt88:2: BDOS call needs a statically proven function in C: service' transfers.err
+    if [ "$target" = msdos ]; then
+        grep -F 'xlt88:1: BDOS call needs a statically proven function in C: 0+5' transfers.err
+        grep -F 'xlt88:2: BDOS call needs a statically proven function in C: service' transfers.err
+    else
+        grep -F 'native BDOS pass-through' transfers.err
+    fi
     grep -F 'xlt88:3: transfer target exceeds a 16-bit address: 10005h' transfers.err
 
     cat > layout.80 <<'ASM'

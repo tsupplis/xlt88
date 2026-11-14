@@ -613,3 +613,83 @@ Regression policy: retain independent CPU/API/parser/emitter tests and add
 reference behavior comparisons. Raw assembly differences and CMD size are
 review/efficiency evidence, not semantic equivalence tests. Patched references
 must identify deliberate policy changes, especially interrupt handling.
+
+Validation for this batch: full make test passed, including 70,400 arithmetic,
+8,192 AND/PSW cases, VTL-2 interactive/script comparisons, WASH's five exact
+transcripts and DISK7's four repeated reference scenarios. tests/bdosall.py
+passed separately through all four emitters and is wired into future gates.
+Strict C99 compilation, Clang analysis and focused ASan/UBSan tests passed;
+make corpus was refreshed. The global pause-point assessment is in status.md.
+
+
+## CP/M-86 pass-through and WASH file comparisons
+
+The optional native backend hook now handles unknown service selectors,
+unsupported known numbers and unmatched guarded candidates on CP/M-86.
+Diagnostics and short assembly comments make the native-contract boundary
+explicit. Known calls retain their adaptations; DOS retains rejection or
+unmatched-candidate termination. This is not added automatic service coverage.
+Tests distinguish known/dynamic 6/13 behavior, tail returns, native extension
+continuation and known/dynamic ES:BX results. No program-name rules were introduced.
+
+WASH has seven additional all-four-emitter transcript/file comparisons:
+rename, cancel, duplicate rejection, delete, overwrite refusal, same-drive
+rejection and invalid-drive handling. Copy probes are reported independently:
+the reference and NASM time out; other emitters complete with matching bytes.
+The source retains a CP/M-80 memory-limit lookup and unchecked buffer-pointer
+growth, so a native allocation-aware port remains explicit work.
+
+DISK7 now translates through all four emitters and assembles with NASM, MASM3
+and DRASM86. ASM86 times out; generated execution is not claimed. Four working
+reference scenarios remain separate evidence. DOS WASH analysis is in washdos.md:
+standalone DS declarations, bounded copy effects, explicit FCB fields, directory
+results, buffered input and native allocation each need their own treatment.
+
+
+Current batch validation: make test completed successfully, including 70,400
+arithmetic/result/PSW and 8,192 AND/PSW cases, VTL-2 on both targets, all twelve
+WASH comparison scenarios, and the DISK7 diagnostic checkpoint. The latter
+records an ASM86 timeout rather than claiming assembly success. WASH copy
+probes record reference/NASM timeouts; ASM86/MASM3/DRASM86 additionally pass
+513-record copies with exact contents and source preservation.
+
+Strict C99 compilation, Clang analysis and focused ASan/UBSan native-call and
+selector tests passed. The final extension-continuation tests passed without
+assuming that emu2 rejects function 46. Wrapper timeouts now stop the spawned
+process group; a focused timeout check and the final checkpoint exercised it.
+
+## ASM86 repair and bounded WASH port checks
+
+The external ASM86 banner loop was reduced to a nested EQU expression and
+traced to its 600-byte private evaluator stack. A 2048-byte stack fixes the
+assembler; the installed cpm86_asm86 now assembles generated DISK7 with zero
+errors. DISK7's four-emitter assembly checkpoint now fails on any rejection or
+timeout rather than treating those outcomes as informational.
+
+All non-NASM emitters, including normalized 8080, now write CRLF plus one final
+Ctrl-Z. Byte-level regression and normalized-source round trips cover this.
+Test-only target adjustments preserve the selected emitter's file format.
+
+The explicit WASH port checks pass 18 copy/replace cases per emitter (72 total),
+plus oversized-directory rejection and unchanged-source assertions. Empty,
+one-record and 513-record files are checked by exact bytes. Reduced allocation
+limits are simulated base-page descriptors; canaries verify the next 16 bytes
+are unchanged. This is test-only native port acceptance, not automatic WASH
+translation or real CMD allocation acceptance. CMD sizing policy is deferred.
+
+Next functional work: DOS buffered input (BDOS 10), then generic declaration
+discovery for FCB labels separated from their storage records. Directory-result
+conversion and bounded subroutine effects remain subsequent DOS blockers.
+
+The next batch also includes a first usable annotated 8080 COM reader, currently
+planned rather than partially implemented. Its acceptance boundary is exact
+byte decoding at origin 0100h, explicit code/data and pointer decisions, editable
+address labels and small end-to-end fixtures through both targets/all emitters.
+It does not promise automatic recovery of arbitrary binaries.
+
+Validation complete: full `make test` passed with the repaired ASM86, including
+all four DISK7 assembly checkpoints. The WASH explicit-port checks passed
+separately and are registered for future full gates. Corpus regenerated;
+DISK7 assembly is now 4/8 combinations. Original examples/references unchanged.
+The corpus and status reports are refreshed. Original examples and references
+remain unchanged. This batch is complete; no next-batch implementation started.

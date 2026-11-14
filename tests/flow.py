@@ -124,7 +124,7 @@ with tempfile.TemporaryDirectory() as directory:
     ]:
         (work/'bad.asm').write_text(text)
         (work/'out.asm').write_text('preserve')
-        result=subprocess.run([str(exe),'--target=cpm86',str(work/'bad.asm'),str(work/'out.asm')],capture_output=True,text=True)
+        result=subprocess.run([str(exe),'--target='+('msdos' if message == 'statically proven' else 'cpm86'),str(work/'bad.asm'),str(work/'out.asm')],capture_output=True,text=True)
         assert result.returncode and message in result.stderr, result.stderr
         assert (work/'out.asm').read_text() == 'preserve'
 print('Boundary/control-flow rejections and atomic output preservation passed')

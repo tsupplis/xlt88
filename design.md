@@ -790,8 +790,8 @@ names or application identities participate. Inputs remain immutable and the
 caller owns the result arrays.
 
 Lowering compares every guarded value, including singletons and the last arm;
-unmatched values use native program termination. Translation diagnoses that
-boundary. Proven sets retain their existing dispatch contract. The scalar
+unmatched values invoke the optional backend native-call hook; without it
+(DOS), they terminate natively. Translation diagnoses that boundary. Proven sets retain their existing dispatch contract. The scalar
 recognition interface projects guarded values to unknown, so these facts do
 not silently authorize a DOS FCB layout conversion. Independent fixtures cover
 renamed symbols, indirect overwrites, unknown direct stores and singleton guards.
@@ -816,3 +816,20 @@ The regression runner accepts an optional test-only target patch callback.
 This permits an explicitly labelled native consumer to validate an ABI without
 pretending that the translator synthesized that consumer. Unmodified-source
 acceptance tests leave the callback unset. Test reports distinguish these paths.
+
+
+## Optional native BDOS fallback
+
+`backend_t.native_bdos` is a borrowed emitter callback. CP/M-86 implements it
+as a raw INT E0h, leaving the selector in CL and retaining native result and
+segment behavior. DOS leaves it NULL. Orchestration invokes it for unknown
+selectors, unsupported known entries, and unmatched guarded candidates; it
+emits a source diagnostic and short assembly comments compatible with legacy
+line limits. No backend-name comparison or application identity is involved.
+
+Proven/supported calls and matched guarded candidates retain their existing
+lowerings, including 6/13 adaptations. An unknown 6/13 call is deliberately
+native; no runtime compatibility dispatcher is synthesized. Tail BDOS
+transfers return to the original caller after a returning native call.
+Independent tests cover tail calls, extension continuation, unknown 6/13 behavior,
+known/dynamic ES:BX results and DOS atomic rejection.

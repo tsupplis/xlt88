@@ -3,6 +3,7 @@
 import os
 import pty
 import re
+import signal
 from pathlib import Path
 import subprocess
 root = Path(__file__).resolve().parent.parent
@@ -13,8 +14,21 @@ emu = os.environ.get('EMU2', 'emu2')
 env = dict(os.environ, EMU2_CPM_VER='2.2', EMU2_DOSVER='1.0')
 
 def runner(work, target):
-    def command(args, execution=False, codes=(0,), input=None):
-        result = subprocess.run(args, cwd=work, env=env if execution else dict(env, EMU2_DOSVER="3.3"), capture_output=True, timeout=60, input=input)
+    def command(args, execution=False, codes=(0,), input=None, timeout=60):
+        # Legacy wrappers spawn emulator/tee children. Bound the whole command
+        # group so an assembler timeout does not leave those children running.
+        with subprocess.Popen(args, cwd=work,
+                              env=env if execution else dict(env, EMU2_DOSVER="3.3"),
+                              stdin=subprocess.PIPE if input is not None else None,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              start_new_session=True) as process:
+            try:
+                stdout, stderr = process.communicate(input=input, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                stdout, stderr = process.communicate()
+                raise subprocess.TimeoutExpired(args, timeout, output=stdout, stderr=stderr)
+            result = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
         assert result.returncode in codes, (args, result.stdout, result.stderr)
         return result.stdout
     def build(name, text, flavor, dialect="intel", patch=None):
@@ -28,10 +42,13 @@ def runner(work, target):
         # Explicit test-only target ports stay separate from source translation.
         if patch is not None:
             assembly = work / (name + suffix)
-            adjusted = patch(assembly.read_text()).replace('\r\n', '\n')
-            assembly.write_bytes(adjusted.replace('\n', '\r\n').encode())
+            adjusted = patch(assembly.read_text().rstrip('\x1a')).replace('\r\n', '\n')
+            data = adjusted.encode()
+            if flavor != 'nasm':
+                data = data.replace(b'\n', b'\r\n') + b'\x1a'
+            assembly.write_bytes(data)
         if flavor == 'asm86':
-            log = command([assembler,name+'.a86'])
+            log = command([assembler,name])
             # Ignored syntax is still a regression, even if the wrapper accepts it.
             assert b'ERROR NO:' not in log and b'NUMBER OF ERRORS:   0' in log, log
             command([gencmd,name,'8080'])
@@ -62,18 +79,18 @@ def runner(work, target):
             command([os.environ.get('NASM','nasm'),'-Werror','-f','bin',name+'.asm','-o',name+'.com'])
             if target == 'cpm86':
                 command([os.environ.get('BIN2CMD','bin2cmd'),name+'.com',name+'.cmd'])
-    def execute(name, *args, input=None, console=False):
+    def execute(name, *args, input=None, console=False, timeout=60):
         if console:
             script = work/'keys.txt'
             script.write_bytes(input or b'')
             # Native status needs a terminal; emu2 supplies the keystrokes.
             master, slave = pty.openpty()
             try:
-                result = subprocess.run([emu,'-c','8088','-s',str(script),'-i','100','-d','1',name+('.cmd' if target == 'cpm86' else '.com'),*args], cwd=work, env=env, stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+                result = subprocess.run([emu,'-c','8088','-s',str(script),'-i','100','-d','1',name+('.cmd' if target == 'cpm86' else '.com'),*args], cwd=work, env=env, stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
                 assert result.returncode == 0, (result.stdout,result.stderr)
                 return result.stdout
             finally:
                 os.close(slave)
                 os.close(master)
-        return command([emu,name+('.cmd' if target == 'cpm86' else '.com'),*args], execution=True, input=input)
+        return command([emu,name+('.cmd' if target == 'cpm86' else '.com'),*args], execution=True, input=input, timeout=timeout)
     return command, build, execute

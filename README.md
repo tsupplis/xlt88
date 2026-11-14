@@ -323,6 +323,9 @@ a supporting emulator to run its zero-fill execution test.
 
 ## ASM86 output
 
+All assembly emitters except NASM write CRLF line endings and a final Ctrl-Z
+(0x1A), including normalized 8080 output. NASM output uses LF without Ctrl-Z.
+
 `--emit=asm86` selects DRI assembler syntax from the same owned target program:
 
 ```sh
@@ -579,7 +582,7 @@ porting. No new command-line option or compatibility runtime is introduced.
 and compares five complete transcripts with the supplied patched reference.
 Results and remaining DOS FCB blockers are recorded in [wash.md](wash.md).
 Generic guarded memory-selector recognition enables its service dispatch;
-unmatched values terminate natively and are diagnosed at translation time.
+unmatched CP/M-86 values use native pass-through with porting warnings; DOS retains native termination.
 The original interrupt policy is preserved and still needs hardware review.
 DOS random write/file size now execute across all four emitters for validated
 FCB plans. CP/M-86 selected-drive reset is emitted, with state execution still
@@ -597,3 +600,15 @@ See [api.md](api.md). WASH reference comparisons include CMD sizes; DISK7 has
 repeatable reference-only scenarios and a blocker inventory in [diskref.md](diskref.md).
 
 The current cross-project snapshot and proposed next batch are in [status.md](status.md).
+
+
+CP/M-86 now accepts unknown BDOS selectors and native extensions through an
+injected native-call hook. Known calls retain their existing adaptations;
+unknown calls use native contracts (including functions 6/13 and segment
+results) and emit port-review warnings. DOS remains strict. See api.md.
+Seven additional WASH transcript/file comparisons are in [washfile.md](washfile.md).
+The separate [washport.md](washport.md) checks an explicit native allocation
+port across all emitters. Its smaller allocation limits are simulated with
+base-page overrides and guard bytes; CMD sizing policy remains deferred.
+WASH's DOS analysis is in [washdos.md](washdos.md). DISK7 is an assembly/port-review
+checkpoint, not a newly validated executable.

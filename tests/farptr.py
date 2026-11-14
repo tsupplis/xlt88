@@ -28,13 +28,16 @@ with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
     _, build, execute = runner(work, 'cpm86')
     for flavor in ('nasm', 'asm86', 'masm3', 'drasm86'):
-        for function in (27, 31):
+        for function, dynamic in ((27, False), (31, False), (27, True), (31, True)):
             text = source.replace('FUNCTION', str(function))
+            if dynamic:
+                text = text.replace(f'prepare: mvi c,{function}', 'prepare: lda selector\n mov c,a')
+                text = text.replace(' end\n', f'selector: db {function}\n end\n')
             (work / 'pointer.80').write_text(text)
             result = subprocess.run([str(exe), '--target=cpm86', '--emit='+flavor,
                                      str(work/'pointer.80'), str(work/'check.asm')], capture_output=True)
-            assert result.returncode == 0 and b'manual port review required' in result.stderr, result.stderr
-            assert b'ES:BX' in result.stderr
+            warning = b'native BDOS pass-through' if dynamic else b'manual port review required'
+            assert result.returncode == 0 and warning in result.stderr, result.stderr
 
             def patch(assembly):
                 # Poison incoming ES: restoring it would destroy the result.
@@ -75,8 +78,9 @@ with tempfile.TemporaryDirectory() as directory:
             build('pointer', text, flavor, patch=patch)
             output = execute('pointer')
             assert b'POINTER OK' in output and b'FAILED' not in output, (flavor, function, output)
-        print(flavor, '27/31 native ES:BX, explicit far reads and later ES preservation passed', flush=True)
+        print(flavor, '27/31 known/dynamic native ES:BX, explicit far reads and later ES preservation passed', flush=True)
     # DOS must keep these CP/M system-data interfaces unsupported.
+    (work/'pointer.80').write_text(source.replace('FUNCTION', '31'))
     result = subprocess.run([str(exe), '--target=msdos', str(work/'pointer.80'),
                              str(work/'dos.asm')], capture_output=True)
     assert result.returncode and b'needs a native port' in result.stderr
