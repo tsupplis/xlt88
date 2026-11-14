@@ -15,7 +15,7 @@ exit_program(const emitter_t *out)
 }
 
 static int
-bdos(const emitter_t *out, long function)
+bdos(const emitter_t *out, long function, unsigned long site)
 {
 	const char *service;
 
@@ -29,6 +29,7 @@ bdos(const emitter_t *out, long function)
 	case 9:
 		service = "print dollar-terminated string at DS:DX";
 		break;
+	case 6: service = "direct console I/O, CP/M 2.2 modes"; break;
 	case 10: 
 		service = "read CP/M console buffer at DS:DX"; 
 		break;
@@ -95,8 +96,27 @@ bdos(const emitter_t *out, long function)
 	instruction(out, "push", operand(operand_register, "es"), no_operand);
 	emit(out, output_comment, service, no_operand, no_operand);
 	emit(out, output_line_end, NULL, no_operand, no_operand);
+	if (function == 6) {
+		/* CP/M-86 reserves FE for status; CP/M 2.2 treats it as output. */
+		instruction(out, "cmp", operand(operand_register, "dl"), value(operand_immediate, 254));
+		emit(out, output_line_end, NULL, no_operand, no_operand);
+		instruction(out, "jne", operand(operand_internal_label, "io6"), value(operand_immediate, site));
+		emit(out, output_line_end, NULL, no_operand, no_operand);
+		instruction(out, "push", operand(operand_register, "cx"), no_operand);
+		emit(out, output_line_end, NULL, no_operand, no_operand);
+		instruction(out, "mov", operand(operand_register, "cl"), value(operand_immediate, 2));
+		emit(out, output_line_end, NULL, no_operand, no_operand);
+		instruction(out, "int", value(operand_interrupt, 0xe0), no_operand);
+		emit(out, output_line_end, NULL, no_operand, no_operand);
+		instruction(out, "pop", operand(operand_register, "cx"), no_operand);
+		emit(out, output_line_end, NULL, no_operand, no_operand);
+		instruction(out, "jmp", operand(operand_internal_label, "ioend"), value(operand_immediate, site));
+		emit(out, output_line_end, NULL, no_operand, no_operand);
+		emit(out, output_internal_definition, "io6", value(operand_immediate, site), no_operand);
+	}
 	instruction(out, "int", value(operand_interrupt, 0xe0), no_operand);
 	emit(out, output_line_end, NULL, no_operand, no_operand);
+	if (function == 6) emit(out, output_internal_definition, "ioend", value(operand_immediate, site), no_operand);
 	instruction(out, "pop", operand(operand_register, "es"), no_operand);
 	return 1;
 }

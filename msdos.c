@@ -10,9 +10,10 @@ exit_program(const emitter_t *out)
 }
 
 static int
-bdos(const emitter_t *out, long function)
+bdos(const emitter_t *out, long function, unsigned long site)
 {
 	int returns_byte = 0;
+	(void)site;
 	const char *service;
 
 	switch (function) {
@@ -25,6 +26,10 @@ bdos(const emitter_t *out, long function)
 		break;
 	case 9:
 		service = "DOS print dollar-terminated string at DS:DX";
+		break;
+	case 6:
+		returns_byte = 1;
+		service = "DOS direct console I/O";
 		break;
 	case 11:
 		returns_byte = 1;

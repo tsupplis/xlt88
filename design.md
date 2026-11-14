@@ -606,3 +606,23 @@ reference model, source generation, case enumeration and result comparisons.
 The arithmetic matrix is four emitters by two OS targets, with 8,800 identical
 cases per cell. A uniform 64-case batch limit accommodates MASM 3's memory
 limit. A failure stops the run rather than reducing or skipping coverage.
+
+## Source boundaries, fixed origins and C facts
+
+The symbol table owns a per-record original address vector alongside symbol
+addresses. Unknown layout remains -1. CPU lowering evaluates compound transfer
+expressions at the source location and binds unique instruction starts to
+internal target labels. Source and target addresses stay separate, and source
+records remain immutable. Interior-byte/data destinations and ambiguous overlays
+are not guessed.
+
+`output_origin` carries a requested physical offset. Renderers generate padding
+and enforce that the expanded target has not passed that offset. DRI renderers
+need explicit conditional guards because RB alone does not reliably reject
+negative counts. The current implementation permits forward ordered regions;
+reordering data-first or overlapping source regions is a separate planning task.
+
+OS recognition propagates a known C only through a whitelist of instructions
+that preserve it, and invalidates the fact at labels/control transfers/clobbers.
+MVI C and LXI B establish constants. This pass remains independent of target
+selection and of the stricter DOS FCB storage proof.

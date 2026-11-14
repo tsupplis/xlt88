@@ -7,7 +7,7 @@
 typedef struct backend {
 	const char *name;
 	/* Return zero when the service has no direct translation. */
-	int (*bdos)(const emitter_t *, long function);
+	int (*bdos)(const emitter_t *, long function, unsigned long site);
 	void (*exit_program)(const emitter_t *);
 	/* If present, emit segment selection immediately before the CPU layer
 	 * emits MOV SP; no intervening instructions may be inserted. */

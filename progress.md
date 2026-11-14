@@ -10,8 +10,8 @@ implementation and tests. Detailed OS service coverage lives in api.md.
 | --- | --- | --- |
 | 8080 mnemonic fixtures | 78/78 | Every translator mnemonic appears in an assembled fixture; not exhaustive instruction behavior |
 | Arithmetic execution | 70,400/70,400: 8,800 per emitter/OS pair | All four emitters × DOS 1.0 and CP/M-86 agree with the reference model for the existing case set |
-| CP/M-86 native BDOS lowering entries | 21/39 non-reserved CP/M 2.2 functions | Functions 0, 1, 2, 9, 12, 15–23, 25, 26, 33–36, 40 have lowering code; function 40 execution unverified |
-| DOS native BDOS lowering entries | 11/39, five with restricted FCB analysis | 0, 1, 2, 9, 25, 26 plus 15, 16, 20–22 for proven opaque FCB uses; not general file/API coverage |
+| CP/M-86 native BDOS lowering entries | 23/39 non-reserved CP/M 2.2 functions | Functions 0, 1, 2, 9–12, 15–23, 25, 26, 33–36, 40 have lowering code; function 40 execution unverified |
+| DOS native BDOS lowering entries | 12/39, five with restricted FCB analysis | 0, 1, 2, 9, 11, 25, 26 plus 15, 16, 20–22 for proven opaque FCB uses; not general file/API coverage |
 | Input readers | Intel implemented; M80 partial; 2 pending | M80 flat 8080 syntax/listing subset implemented; MAC/RMAC and COM pending |
 | Final assembler emitters | 4/4 | NASM, ASM86 1.1N2, MASM 3.00 and DRASM86 (RASM-86 1.4a); all three legacy flavors execute DOS 1.0 and CP/M-86 fixtures |
 | Normalized 8080 output | Implemented | Separate output from the parsed source, including preferred symbol names |
@@ -31,12 +31,12 @@ emulation of a CP/M-80 machine identity.
 | 2. Shared symbols and editable state | Partial | Stable IDs scoped to source fingerprint; preferred-name import/export; conflicts/stale-state checks; source layout and numeric branch binding to unique labels | Rebind after source edits; generated-label identities; explicit aliases/address annotations; generated addresses from assembler maps |
 | 3. Typed intermediate representation | Partial | Owned expression trees, ID-bound symbol leaves, checked arithmetic, EQU dependencies; typed target event/operand kinds | Typed source instructions/operands; structured target memory operands; full source provenance; remove remaining textual interpretation between passes |
 | 4. Correct 8080 instruction behavior | Partial | 78 mnemonic fixtures, CPU diagnostic, arithmetic cases, PSW/DAA checks, both targets | Explicit instruction/operand/flag coverage matrix; fill untested combinations and boundary cases; distinguish executed checks from emitted-byte checks and hardware-only behavior |
-| 5. Complete BDOS 2.2 to CP/M-86 | Early | Twenty-one native lowering entries, including search/random operations | Implement and validate remaining 18 source functions or document required explicit ports; far-pointer and system-data consumers need representation-aware translation |
-| 6. Complete BDOS 2.2 to DOS 1.0 | Early | Six existing entries plus five proven opaque-FCB lowerings | Implement missing source semantics through native DOS operations; FCB layouts, statuses, user areas, attributes, drive policy and disk structures require explicit decisions, not call-number substitution |
+| 5. Complete BDOS 2.2 to CP/M-86 | Early | Twenty-three native lowering entries, including search/random operations | Implement and validate remaining 16 source functions or document required explicit ports; far-pointer and system-data consumers need representation-aware translation |
+| 6. Complete BDOS 2.2 to DOS 1.0 | Early | Seven direct service entries plus five proven opaque-FCB lowerings | Implement missing source semantics through native DOS operations; FCB layouts, statuses, user areas, attributes, drive policy and disk structures require explicit decisions, not call-number substitution |
 | 7. Native DOS 1.0 operation support | Pending | Target version and local reference sources identified | Inventory native services; define source representation for DOS-only operations; verify each entry against DOS 1.0 rather than assuming later-version behavior |
 | 8. Additional source readers | Partial | Intel ASM plus M80 8080 subset with conditions/includes/macros/LOCAL/repetition/EXITM/text operators/string conditions | M80 remaining expression/word-arithmetic semantics/pass conditions/relocation; MAC/RMAC; COM decoding with code/data and entry annotations |
 | 9. Additional assembler emitters | Implemented; validation expanding | Four flavors; three legacy emitters pass CPU, memory/location, alignment, console and FCB comparisons on both OS targets | Arithmetic matrix complete; broaden real-program acceptance tests |
-| 10. Real-program validation | Partial | Repeatable `make corpus` inventory of six 8080 sources; Hello World and CPU diagnostic execute in all eight combinations; per-stage report in corpus.md | Forth NEXT+3 transfer resolution; PILOT layout/transfers; Tiny BASIC restarts/BDOS flow; Balloon hardware port |
+| 10. Real-program validation | Partial | Repeatable `make corpus` inventory of six 8080 sources; Hello World and CPU diagnostic execute in all eight combinations; per-stage report in corpus.md | Forth BIOS port and execution; PILOT out-of-order regions/monitor hooks; Tiny BASIC restart bodies/DOS FCB proof; Balloon hardware port |
 
 ## Immediate implementation order
 
@@ -212,3 +212,26 @@ FIG-Forth now normalizes unchanged; its next observed blocker is the `NEXT+3`
 transfer. Resolve source offsets to instruction boundaries before emitting
 target labels; never carry the source byte offset into translated machine code. PILOT and Tiny BASIC
 need native source-aware translation work, not a compatibility runtime.
+
+## Combined translation milestone
+
+- Source-offset branches/calls now bind unique original instruction boundaries.
+  FIG-Forth translates and assembles unchanged with all four emitters on both
+  targets. This remains an assembly milestone: native BIOS calls and threaded
+  dictionary layout require execution-focused porting before claiming a usable
+  interpreter.
+- Forward fixed ORGs are supported with an explicit target origin event and
+  assembler overflow guards. PILOT's data-first/backward region order remains
+  unsupported; its external monitor hook also requires a port.
+- BDOS C recognition now survives intervening preserving instructions and also
+  recognizes LXI B constants. It remains conservative at labels, calls, branches
+  and unknown/clobbering instructions. Tiny BASIC's omitted restart bodies and
+  return-address/inline-data conventions remain separate blockers.
+- Native CP/M-86 buffered console input and native input status on both targets
+  are implemented. Coverage is now 23/39 CP/M-86 and 12/39 DOS. DOS buffered
+  input needs buffer adaptation; its different terminator capacity is not ignored.
+
+The four workstreams advanced together; interpreter execution, arbitrary region
+reordering, general dataflow and complete BDOS support are not complete. The
+next acceptance target is an explicit native console port of Forth, followed
+by startup and arithmetic execution, keeping the original example intact.

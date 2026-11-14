@@ -35,7 +35,7 @@ drasm86/msdos: xlt88: RASM-86 requires a symbolic branch target
 
 ## forth.asm
 
-M80 normalization now succeeds, including the IFF label. Translation stops at NEXT+3, an offset transfer requiring source-instruction boundary resolution.
+NEXT+3 now binds to an original instruction boundary; all eight combinations build. Execution remains unverified: IOS reads the BIOS vector at address 1 and jumps through it; a native console/disk port and threaded-dictionary layout checks are required.
 
 ## hello.asm
 
@@ -43,7 +43,7 @@ Explicit console/CPU smoke fixture.
 
 ## pilot.asm
 
-Multiple ORGs, fixed-address workspace and computed/offset transfers need representation-aware handling.
+Data precedes code in source (ORG SYSDAT then ORG PSTRT); region reordering is not implemented. ASCAN refers to an external monitor jump table. Forward ordered ORG gaps are supported, but this program needs an explicit layout/monitor port.
 
 Observed blocker samples (at most three diagnostic lines per combination):
 
@@ -55,7 +55,7 @@ xlt88:244: unsupported transfer target expression: ASCAN
 
 ## tinidisk.asm
 
-RST vectors, computed transfers and nonlocal BDOS function selection need translation work.
+Computed offset transfers and straight-line BDOS C propagation are improved. RST vectors remain blocked: their zero-page bodies are commented out in this source, and some consume inline bytes through the return address. DOS FCB proof also remains conservative.
 
 Observed blocker samples (at most three diagnostic lines per combination):
 

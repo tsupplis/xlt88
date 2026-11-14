@@ -19,7 +19,8 @@ References
 | 3–5 | Reader, punch, list | Native device calls to verify | AH=03h–05h, compare device semantics |
 | 6 | Direct console I/O | Check CP/M 2.2 mode and status conventions | AH=06h, verify modes and return values |
 | 7, 8 | Get/set IOBYTE | Native calls to verify | Port device selection explicitly |
-| 10, 11 | Buffered input, input status | Native calls to verify | AH=0Ah–0Bh, check buffer and status conventions |
+| 10 | Buffered input | Implemented; empty/full-capacity input and guard byte tested | Pending: DOS maximum includes its CR terminator; do not pass a CP/M-sized buffer unchanged |
+| 11 | Input status | Implemented; native status result | Implemented via AH=0Bh, result copied to A and L |
 | 12 | BDOS version | Implemented | Port the version-dependent branch explicitly |
 | 13, 14 | Reset disks, select drive | Native calls to verify | AH=0Dh–0Eh, check drive and reset semantics |
 | 15, 16, 22 | Open/close/create | Implemented | Implemented for proven opaque FCB uses; safe create probe |
@@ -96,3 +97,19 @@ partial-read normalization, and an existing-file probe before create to avoid
 silent truncation. Tests use unchanged CP/M source with --target=msdos alone.
 Metadata accesses, oversized copy loops, synthesized indirect aliases,
 DMA-to-FCB, and unproved stack/pointer uses are rejection tests.
+
+## Console additions and recognition
+
+Function 10 on CP/M-86 follows MRDCBF/RDCNBF in the supplied kernel: input
+DX points to maximum/count/data, and the backend preserves ES around INT E0h.
+Tests exercise empty input and a full three-character buffer without changing
+the byte beyond its capacity. Function 11 uses native status on both targets;
+DOS mirrors AL into BL for the source A/L result convention. Installed emu2
+returns not-ready for redirected stdin, which is the executed status case;
+ready/live-console behavior is not claimed as tested.
+
+Recognition now tracks C through an explicitly whitelisted straight-line
+sequence, with MVI C and LXI B as constant definitions. Labels, transfers,
+unknown operations and writes to C/BC invalidate the proof. This is not
+interprocedural or join-aware dataflow. DOS FCB analysis retains its separate
+storage and provenance requirements; recognizing a function does not waive them.

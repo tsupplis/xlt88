@@ -58,15 +58,18 @@ be the same file. Temporary filenames also fit 8.3.
 ## OS calls
 
 The backend emits the native instruction sequence at each recognized
-transfer. A supported BDOS call uses `MVI C, constant` immediately
-before an unlabelled transfer to address 5. Comments and blank lines
-can appear between them. Addresses and service numbers can use simple
+transfer. A supported BDOS call has a statically proven C at an unlabelled
+transfer to address 5. `MVI C, constant` and `LXI B, constant` establish C;
+known instructions that preserve C may intervene. C/BC writes, calls, control
+transfers, labels and unrecognized operations invalidate the proof. Addresses and service numbers can use simple
 forward EQU aliases. A labelled transfer can have another caller,
 so it requires a source edit before automatic translation.
 
 | Source operation | DOS 1.0 | CP/M-86 1.1 |
 | --- | --- | --- |
 | BDOS 1, 2, 9 | Set AH to the service number and use INT 21h | INT E0h with CL already set, saving and restoring ES |
+| BDOS 10 | Pending: different buffer capacity/terminator contract | Native buffered input, preserving ES |
+| BDOS 11 | Native status, byte result in A and L | Native status, preserving ES |
 | BDOS 12 | Manual port | Return the native BDOS version |
 | BDOS 25, 26 | Get current drive and set DTA | Get current drive and set DMA offset |
 | BDOS 15, 16, 20–22 | Implemented for statically proven opaque FCB uses | Native open/close/read/write/create |
@@ -463,3 +466,25 @@ while `IFF DW-1` and `IF DW EQ 1` remain conditions on the symbol `DW`.
 Indentation retains directive interpretation, and a colon explicitly marks a
 label. This resolves the FIG-Forth spelling without reserving opcode-named
 symbols or modifying its source.
+
+## Source addresses and fixed regions
+
+Expressions such as `NEXT+3`, `routine+1` and `$+3` in direct transfers are
+resolved against original 8080 instruction addresses. A unique instruction
+boundary receives an internal target label; offsets into instructions or data,
+unknown addresses and ambiguous overlaid code remain rejected. Source byte
+offsets are never reused as offsets into the expanded 8086 instruction stream.
+Named and numeric transfer behavior otherwise retains the existing contracts.
+
+After the optional initial `ORG 100h`, known forward ORGs preserve the requested
+physical offset by emitting a target origin event. Zero padding is calculated
+at assembly time. Every renderer rejects translated code that outgrows the
+region; ASM86/RASM-86 have explicit guards because negative RB counts can
+otherwise be accepted silently. Backward/unknown origins and data-before-code
+layouts still need region planning or a source port.
+
+`tests/flow.py` executes boundary jumps/calls, fixed-region placement, BDOS
+recognition and native console fixtures with all four emitters on both targets.
+It checks CP/M buffered input at full capacity and empty input with a guard
+byte, and console status with redirected input (A=L=0 in installed emu2).
+Ready-status execution with a live console is not established by that test.

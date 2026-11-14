@@ -575,7 +575,7 @@ transfer(translation_t *ctx, int tail)
 			diagnose(ctx, "BDOS call needs a statically proven function in C: ", ctx->statement.first);
 		} else if (!(ctx->fcb_call && ctx->target->file_call ?
 		    ctx->target->file_call(ctx->out, ctx->bdos_function, ctx->source_line) :
-		    ctx->target->bdos(ctx->out, ctx->bdos_function))) {
+		    ctx->target->bdos(ctx->out, ctx->bdos_function, ctx->source_line))) {
 			fprintf(ctx->diagnostics, "xlt88:%lu: BDOS function %ld needs a native port for %s\n",
 			    ctx->source_line, ctx->bdos_function, ctx->target->name);
 			diagnose(ctx, "cannot translate BDOS transfer: ", ctx->statement.first);
@@ -971,16 +971,40 @@ equ(translation_t *ctx)
 	emit(ctx->out, output_equate, NULL, expr(ctx, ctx->statement.first), no_operand);
 }
 
+/* Each initializer has its own location counter, as in ASM/M80. Emitting
+ * separate target directives avoids assembler-dependent meanings of $ in lists. */
+static void
+data_items(translation_t *ctx, output_kind_t kind)
+{
+	const char *start = ctx->statement.first, *p = start;
+	char quote = 0, part[256];
+	for (;;) {
+		if (*p == '\'' || *p == '"') {
+			if (!quote) quote = *p;
+			else if (*p == quote) quote = 0;
+		}
+		if (!*p || (*p == ',' && !quote)) {
+			size_t length = (size_t)(p - start);
+			memcpy(part, start, length); part[length] = 0;
+			emit(ctx->out, kind, NULL, expr(ctx, part), no_operand);
+			if (!*p) break;
+			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+			start = p + 1;
+		}
+		++p;
+	}
+}
+
 static void
 db(translation_t *ctx)
 {
-	emit(ctx->out, output_data_bytes, NULL, expr(ctx, ctx->statement.first), no_operand);
+	data_items(ctx, output_data_bytes);
 }
 
 static void
 dw(translation_t *ctx)
 {
-	emit(ctx->out, output_data_words, NULL, expr(ctx, ctx->statement.first), no_operand);
+	data_items(ctx, output_data_words);
 }
 
 static void
