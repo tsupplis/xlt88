@@ -247,7 +247,7 @@ and replay either target to different emitters. Call `source_destroy` and
 See [design.md](design.md) for the full architecture and remaining migration
 work. Editable symbol-state files, typed expression trees, and conservative
 source layout are available. Source instructions still use textual operand fields.
-Intel ASM and a limited M80 8080 reader are implemented. MAC/RMAC and COM
+Intel ASM and limited M80 and MAC 8080 readers are implemented. RMAC and COM
 readers are planned. NASM, ASM86, MASM 3 and DRASM86 (RASM-86) are implemented.
 
 Run `make test` with NASM, emu2, bin2cmd, cpm86_asm86, cpm86_gencmd,
@@ -480,11 +480,72 @@ After the optional initial `ORG 100h`, known forward ORGs preserve the requested
 physical offset by emitting a target origin event. Zero padding is calculated
 at assembly time. Every renderer rejects translated code that outgrows the
 region; ASM86/RASM-86 have explicit guards because negative RB counts can
-otherwise be accepted silently. Backward/unknown origins and data-before-code
-layouts still need region planning or a source port.
+otherwise be accepted silently. Known, non-overlapping fixed regions may appear out of address order; the
+region planner sorts their emission while retaining source identities and
+origins. Unknown sizes in reordered regions, overlaps and expansion overflow
+remain rejected. No automatic relocation or segmented layout is inferred.
 
 `tests/flow.py` executes boundary jumps/calls, fixed-region placement, BDOS
 recognition and native console fixtures with all four emitters on both targets.
 It checks CP/M buffered input at full capacity and empty input with a guard
 byte, and console status with redirected input (A=L=0 in installed emu2).
 Ready-status execution with a live console is not established by that test.
+
+
+### Explicit console-only FIG-Forth port
+
+Generate a separate source and translate it normally:
+
+```sh
+python3 tests/figforth.py /tmp/forth.80
+./xlt88 --dialect=m80 --target=cpm86 --emit=asm86 /tmp/forth.80 /tmp/forth.a86
+```
+
+The original example is preserved. The port replaces BIOS console calls with
+BDOS calls and rejects actual disk/printer requests with a diagnostic and exit.
+It does not add a CP/M runtime. `tests/forth.py` checks startup, arithmetic,
+a new word definition, execution, exit and disk rejection on both targets with
+all four assemblers. `tests/console.py` validates native BDOS 6 and ready status,
+using emu2 keyboard scripts and a terminal input handle in 8088 CPU mode.
+Both run under `make test`.
+
+Data-list initializers are emitted individually: `$` advances for each item,
+as verified with MACRO-80. This preserves threaded Forth branch displacements
+such as `DW ZBRAN,ULES1-$` across assembler flavors.
+
+
+The next reference comparisons are recorded in [refs.md](refs.md), covering
+VTL-2, WASH and DISK7. Native DOS delete/rename now use compatible name fields;
+see [api.md](api.md) for execution coverage and the emulator collision limitation.
+
+
+`make vtlbench` measures unchanged VTL-2 against its supplied direct xlt86
+reference. It validates reference execution and records each xlt88 target as
+executed or explicitly blocked. See [vtlbench.md](vtlbench.md). Native drive
+selection (BDOS 14) is now available on both targets; disk reset remains pending
+because the native contracts differ.
+
+
+The owned target program now has a conservative branch-size pass (`shrink.c`).
+It folds an inverse-condition/skip/jump sequence into a direct conditional jump
+only when shared 8086 encoding bounds prove rel8 reach. Legacy emitters respect
+that proof instead of expanding the condition again. Far branches and paths
+across data, alignment, origins or unknown instructions retain their safe form.
+
+### MAC reader subset
+
+Use `--dialect=mac` to read Digital Research MAC source, including unchanged
+`examples/disk7.mac`. The reader handles embedded dollar separators, optional
+line numbers, statement separators, doubled quotes, macros, nested conditions,
+labelled ORG/IF/END and versioned SET assignments. See [mac.md](mac.md) for
+contracts and limits. Successful normalization does not imply complete BDOS
+translation or executable DISK7 support.
+
+### Bounded native service selection
+
+BDOS recognition now follows register copies and direct control flow, including
+inputs to shared routines. Up to four proven function values can produce native
+conditional dispatch; unknown values remain errors. DOS FCB address loads may
+be separated from calls by proven-safe register operations. Auxiliary/list
+output (4/5) now assembles on both targets, with device execution still unverified.
+See [api.md](api.md) for the distinction between lowering and execution coverage.

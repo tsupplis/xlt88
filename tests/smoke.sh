@@ -149,8 +149,8 @@ ASM
     if "$root/xlt88" --target="$target" transfers.80 transfers.asm 2> transfers.err; then
         exit 1
     fi
-    grep -F 'xlt88:1: unsupported transfer target expression: 0+5' transfers.err
-    grep -F 'xlt88:2: unsupported transfer target expression: service' transfers.err
+    grep -F 'xlt88:1: BDOS call needs a statically proven function in C: 0+5' transfers.err
+    grep -F 'xlt88:2: BDOS call needs a statically proven function in C: service' transfers.err
     grep -F 'xlt88:3: transfer target exceeds a 16-bit address: 10005h' transfers.err
 
     cat > layout.80 <<'ASM'

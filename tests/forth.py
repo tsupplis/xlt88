@@ -2,11 +2,9 @@
 import hashlib
 from pathlib import Path
 import re
-import sys
 import tempfile
 from toolrun import runner
 root = Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(root/'ports'))
 from figforth import port_source
 
 original = root/'examples'/'forth.asm'

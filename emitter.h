@@ -27,6 +27,7 @@ typedef struct output {
 	output_kind_t kind;
 	const char *text;
 	operand_t operands[2];
+	int short_branch; /* Proven rel8 range; never inferred by an emitter. */
 } output_t;
 
 /* Events and their strings are borrowed for the duration of the callback. */

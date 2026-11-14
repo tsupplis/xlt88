@@ -14,6 +14,7 @@ typedef struct target_program {
 } target_program_t;
 
 emitter_t target_builder(target_program_t *);
+int target_shrink(target_program_t *);
 int target_write(const target_program_t *, const emitter_t *);
 void target_destroy(target_program_t *);
 

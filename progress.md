@@ -10,9 +10,9 @@ implementation and tests. Detailed OS service coverage lives in api.md.
 | --- | --- | --- |
 | 8080 mnemonic fixtures | 78/78 | Every translator mnemonic appears in an assembled fixture; not exhaustive instruction behavior |
 | Arithmetic execution | 70,400/70,400: 8,800 per emitter/OS pair | All four emitters × DOS 1.0 and CP/M-86 agree with the reference model for the existing case set |
-| CP/M-86 native BDOS lowering entries | 23/39 non-reserved CP/M 2.2 functions | Functions 0, 1, 2, 9–12, 15–23, 25, 26, 33–36, 40 have lowering code; function 40 execution unverified |
-| DOS native BDOS lowering entries | 12/39, five with restricted FCB analysis | 0, 1, 2, 9, 11, 25, 26 plus 15, 16, 20–22 for proven opaque FCB uses; not general file/API coverage |
-| Input readers | Intel implemented; M80 partial; 2 pending | M80 flat 8080 syntax/listing subset implemented; MAC/RMAC and COM pending |
+| CP/M-86 native BDOS lowering entries | 27/39 non-reserved CP/M 2.2 functions | Functions 0, 1, 2, 4, 5, 6, 9–12, 14–23, 25, 26, 33–36, 40 have lowering code; functions 4, 5 and 40 execution unverified |
+| DOS native BDOS lowering entries | 18/39, five with restricted FCB analysis | 0, 1, 2, 4, 5, 6, 9, 11, 14, 19, 23, 25, 26 plus 15, 16, 20–22 for proven opaque FCB uses; 4/5 device execution unverified; not general file/API coverage |
+| Input readers | Intel implemented; M80/MAC partial | MAC normalises unchanged DISK7; RMAC and COM pending |
 | Final assembler emitters | 4/4 | NASM, ASM86 1.1N2, MASM 3.00 and DRASM86 (RASM-86 1.4a); all three legacy flavors execute DOS 1.0 and CP/M-86 fixtures |
 | Normalized 8080 output | Implemented | Separate output from the parsed source, including preferred symbol names |
 | Symbol state | Version 2 implemented | Names, source-scoped IDs, EQU text/values and known original addresses; version 1 import supported |
@@ -29,14 +29,14 @@ emulation of a CP/M-80 machine identity.
 | --- | --- | --- | --- |
 | 1. Separate pipeline modules | Done for current capabilities | Reader, CPU lowering, OS backends, owned target program, NASM renderer and driver; injected dependencies and lifecycle tests | Maintain separation as new passes are added |
 | 2. Shared symbols and editable state | Partial | Stable IDs scoped to source fingerprint; preferred-name import/export; conflicts/stale-state checks; source layout and numeric branch binding to unique labels | Rebind after source edits; generated-label identities; explicit aliases/address annotations; generated addresses from assembler maps |
-| 3. Typed intermediate representation | Partial | Owned expression trees, ID-bound symbol leaves, checked arithmetic, EQU dependencies; typed target event/operand kinds | Typed source instructions/operands; structured target memory operands; full source provenance; remove remaining textual interpretation between passes |
+| 3. Typed intermediate representation | Partial | Fixed-region emission plan preserving source IDs; owned expression trees, ID-bound symbol leaves, checked arithmetic, EQU dependencies; typed target event/operand kinds | Typed source instructions/operands; structured target memory operands; full source provenance; remove remaining textual interpretation between passes |
 | 4. Correct 8080 instruction behavior | Partial | 78 mnemonic fixtures, CPU diagnostic, arithmetic cases, PSW/DAA checks, both targets | Explicit instruction/operand/flag coverage matrix; fill untested combinations and boundary cases; distinguish executed checks from emitted-byte checks and hardware-only behavior |
-| 5. Complete BDOS 2.2 to CP/M-86 | Early | Twenty-three native lowering entries, including search/random operations | Implement and validate remaining 16 source functions or document required explicit ports; far-pointer and system-data consumers need representation-aware translation |
-| 6. Complete BDOS 2.2 to DOS 1.0 | Early | Seven direct service entries plus five proven opaque-FCB lowerings | Implement missing source semantics through native DOS operations; FCB layouts, statuses, user areas, attributes, drive policy and disk structures require explicit decisions, not call-number substitution |
+| 5. Complete BDOS 2.2 to CP/M-86 | Early | Twenty-seven native lowering entries, including search/random operations | Implement and validate remaining 12 source functions or document required explicit ports; far-pointer and system-data consumers need representation-aware translation |
+| 6. Complete BDOS 2.2 to DOS 1.0 | Early | Thirteen direct service entries plus five proven opaque-FCB lowerings | Implement missing source semantics through native DOS operations; FCB layouts, statuses, user areas, attributes, drive policy and disk structures require explicit decisions, not call-number substitution |
 | 7. Native DOS 1.0 operation support | Pending | Target version and local reference sources identified | Inventory native services; define source representation for DOS-only operations; verify each entry against DOS 1.0 rather than assuming later-version behavior |
-| 8. Additional source readers | Partial | Intel ASM plus M80 8080 subset with conditions/includes/macros/LOCAL/repetition/EXITM/text operators/string conditions | M80 remaining expression/word-arithmetic semantics/pass conditions/relocation; MAC/RMAC; COM decoding with code/data and entry annotations |
+| 8. Additional source readers | Partial | Intel ASM plus M80 8080 subset with conditions/includes/macros/LOCAL/repetition/EXITM/text operators/string conditions | M80/MAC remaining expression/word-arithmetic semantics/pass conditions/relocation; RMAC; COM decoding with code/data and entry annotations |
 | 9. Additional assembler emitters | Implemented; validation expanding | Four flavors; three legacy emitters pass CPU, memory/location, alignment, console and FCB comparisons on both OS targets | Arithmetic matrix complete; broaden real-program acceptance tests |
-| 10. Real-program validation | Partial | Repeatable `make corpus` inventory of six 8080 sources; Hello World and CPU diagnostic execute in all eight combinations; per-stage report in corpus.md | Forth BIOS port and execution; PILOT out-of-order regions/monitor hooks; Tiny BASIC restart bodies/DOS FCB proof; Balloon hardware port |
+| 10. Real-program validation | Partial | Repeatable `make corpus` inventory of nine assembly sources; Hello World, CPU diagnostic and explicit console-only Forth port execute in all eight combinations; per-stage report in corpus.md | Forth disk/printer port; PILOT monitor hooks and target expansion; Tiny BASIC restart bodies/DOS FCB proof; Balloon hardware port |
 
 ## Immediate implementation order
 
@@ -221,17 +221,214 @@ need native source-aware translation work, not a compatibility runtime.
   dictionary layout require execution-focused porting before claiming a usable
   interpreter.
 - Forward fixed ORGs are supported with an explicit target origin event and
-  assembler overflow guards. PILOT's data-first/backward region order remains
-  unsupported; its external monitor hook also requires a port.
+  assembler overflow guards. At this earlier milestone PILOT's data-first
+  region order was unsupported; fixed-region ordering is implemented below.
+  Its external monitor hooks still require a port.
 - BDOS C recognition now survives intervening preserving instructions and also
   recognizes LXI B constants. It remains conservative at labels, calls, branches
   and unknown/clobbering instructions. Tiny BASIC's omitted restart bodies and
   return-address/inline-data conventions remain separate blockers.
 - Native CP/M-86 buffered console input and native input status on both targets
-  are implemented. Coverage is now 23/39 CP/M-86 and 12/39 DOS. DOS buffered
+  are implemented. At that milestone coverage was 23/39 CP/M-86 and 12/39 DOS. DOS buffered
   input needs buffer adaptation; its different terminator capacity is not ignored.
 
 The four workstreams advanced together; interpreter execution, arbitrary region
-reordering, general dataflow and complete BDOS support are not complete. The
-next acceptance target is an explicit native console port of Forth, followed
-by startup and arithmetic execution, keeping the original example intact.
+reordering, general dataflow and complete BDOS support are not complete. The console-only Forth acceptance target is completed below; broader interpreter and OS coverage remains open.
+
+## Console-only Forth execution
+
+`tests/figforth.py` derives an explicit BDOS console port while leaving
+`examples/forth.asm` unchanged. All four assemblers on both targets pass startup,
+`123 456 + .` (579), defining `SQUARE`, `7 SQUARE .` (49), and `BYE`.
+Actual disk/printer BIOS requests terminate with an explicit unsupported message;
+this is not a complete Forth disk port or an exhaustive interpreter test.
+
+BDOS 6 now lowers to native operations on both targets. CP/M-86's special FE
+status mode is avoided for CP/M 2.2 FE character output. Coverage is 24/39 and
+13/39 respectively. The regression tests cover ready status, direct input with
+A=L, ordinary output and FE output, using emu2 keyboard scripts with a terminal
+input handle and its 8088 CPU mode.
+
+The Forth run exposed per-initializer `$` semantics: MACRO-80 assigns different
+addresses to `DW $, $`. Data lists now emit separate typed items so every
+assembler observes the correct location. Tests check both word and byte lists,
+including quoted commas. All these checks are part of `make test`.
+
+## Next major step: source regions and target layout
+
+The console-only Forth fixture is an adapted test input, not proof that original
+BIOS-dependent programs translate automatically. The production changes in this
+batch are native BDOS 6 lowering and correct data-initializer location counters.
+
+Next, represent source regions explicitly and separate source addresses from
+target placement. This addresses PILOT's out-of-order ORGs and VTL-2's fixed
+ORG region overflow after instruction expansion.
+
+1. Record region origins, contents, ordering and symbol references in the IR.
+2. Distinguish fixed-address constraints from relocatable placement explicitly;
+   preserve fixed origins by default and diagnose overflow. Never silently move
+   hardware addresses or reinterpret source address arithmetic.
+3. Let CPU lowering produce target regions and let each emitter render the same
+   placement decisions. Reconcile source and target symbol addresses explicitly.
+4. Validate boundary/overlap/overflow cases and all four assemblers on both OS
+   targets. Re-measure PILOT and VTL-2; monitor hooks and DOS FCB proof remain
+   separate execution requirements.
+
+Acceptance: supported symbolic multi-region programs build consistently in all
+eight combinations, fixed-address violations remain explicit, and the example
+report distinguishes layout progress from actual execution.
+
+For the next batch, use the user's working ASM86 translations as independent
+comparison references for the newly added tools. Inventory their input dialects
+(including MAC), compare symbol/data layout and native OS calls, and select the
+first reference-backed acceptance case before extending translation. Adding a
+reference file does not establish that its source currently builds or executes.
+
+## Batch sign-off — 2026-11-14
+
+Full `make test` passed, including 70,400 arithmetic cases across all eight
+emitter/OS combinations, console/Forth acceptance, symbol state, source layout,
+CP/M-86 sequential/random/search operations and DOS opaque-FCB translation.
+The console and Forth suites also passed with address/undefined-behaviour
+sanitizers; Forth was rerun successfully after moving its fixture generator into
+`tests/`. BDOS 40 remains emission-only because the installed emulator does not
+implement it; this unchanged gap is not counted as executed coverage.
+
+The next batch starts with `vtl2.asm`, `wash15.asm`, and `disk7.mac` and their
+working `.a86` references: VTL-2 is direct xlt86 output; WASH and DISK7 include
+manual changes. First compare
+source, reference and (when available) patches; classify differences as reader,
+CPU translation, source/target layout, or explicit OS/hardware porting. Use that
+evidence to choose the first implementation slice of the region-layout plan.
+A working reference is an acceptance oracle, not a replacement for translation.
+
+## Reference and DOS batch — implementation
+
+- Native DOS delete and rename added: source BDOS coverage is 15/39. Four-emitter
+  execution covers success/missing cases, wildcard deletion, A=L and guard bytes.
+  Rename collision execution is unverified because emu2 overwrites destinations;
+  `DOS_RENAME=1` enables the strict acceptance check on a corrected emulator.
+- Arithmetic native-service aliases (BDOS=5+BASE, WBOOT=0+BASE) now resolve.
+- Fixed out-of-order regions now have an owned emission plan. Original record
+  indices, symbol identities and origins remain intact. Eight-combination tests
+  cover pointers, branches and execution, with rejection of overlaps/unknown
+  sizes/missing entry regions. Expansion overflow is not silently relocated.
+- All three supplied references assemble without errors under ASM86 1.1N2.
+  Findings and remaining program-specific issues are documented in refs.md.
+- Corpus measurement now includes wash15.asm and disk7.mac. MAC remains an
+  explicitly unsupported reader, not an M80 alias. None of these three complete
+  programs is claimed as executing under xlt88 yet.
+
+## Reference/DOS batch sign-off and next batch
+
+Full `make test` completed successfully: 70,400 arithmetic cases, all existing
+state/layout/file suites, and the new region/alias/name-service checks. The new
+focused suites also passed address/undefined-behaviour sanitizers. BDOS 40 and
+DOS rename collisions retain their documented emulator execution gaps.
+
+Next batch: unchanged VTL-2 versus its direct xlt86 reference. Establish a
+repeatable reference execution transcript, compare code size and segment/layout
+contracts, and identify the general cause of the fixed-0800h overflow. Implement
+only a justified shared translation/layout correction, then compare execution
+and rerun relevant emitter/CPU checks. No source edits, program-name exceptions,
+or invented operating-system state count as success. MAC parsing is a separate
+general reader task; the WASH/DISK7 patches guide requirements and feasibility,
+not automatic adoption of program-specific fixes.
+
+## VTL-2 benchmark and drive selection
+
+`make vtlbench` assembles and executes the supplied direct xlt86 reference in
+8088 mode and measures unchanged source translation for every emitter/target.
+Reference startup, 123+456=579, A=7 then A*6=42, and exit pass. Its code boundary
+is 078Bh before variables at 0800h. Current xlt88 NASM code exceeds that fixed
+boundary by 513 bytes; the other CP/M-86 emitters also fail placement, and DOS
+additionally rejects unproved default-FCB use. See vtlbench.md for hashes,
+transcript and per-target diagnostics. These are measured blockers, not xlt88
+execution passes. No source or reference bytes were changed.
+
+BDOS 14 is now implemented on both targets and passes eight-combination drive
+selection/current-drive/default-drive file tests. Coverage is 25/39 CP/M-86 and
+16/39 DOS. BDOS 13 remains blocked after native-contract review. Further VTL-2
+work requires a measured, semantics-preserving code-size improvement or an
+explicitly justified layout contract; removing the fixed origin is not accepted.
+
+Validation for this additive service change: drive-selection execution passed
+all eight combinations, and CP/M-86 sequential file, DOS opaque-FCB and DOS
+name-service regressions passed. The CPU lowering did not change; the preceding
+70,400-case full regression remains the CPU baseline. The VTL-2 benchmark
+completed and explicitly recorded all eight xlt88 combinations as blocked
+before execution, rather than counting them as passing programs.
+
+## General branch-size improvement
+
+The shared target pass now proves short-branch reach using conservative 8086
+encoding bounds. It folds inverse-condition/jump sequences when safe and stops
+legacy emitters from expanding proven internal short skips a second time.
+Unknown instruction sizes, data, alignment and origin events remain barriers.
+No source-specific handling, CPU flag shortcuts or source changes are involved.
+
+| VTL-2 emitter | Previous excess over 0800h | Current excess | Bytes saved |
+| --- | --- | --- | --- |
+| NASM | 513 | 413 | 100 |
+| ASM86 | 835 | 433 | 402 |
+| MASM 3 | 812 | 422 | 390 |
+| RASM-86 | 835 | 433 | 402 |
+
+The remaining excess is still a blocker. The xlt86 reference execution passes;
+no xlt88 VTL-2 execution is claimed. Dedicated tests cover branch bounds, layout
+barriers, repeated optimisation and near/backward/far branch execution across
+all eight combinations. The full regression passed, including 70,400 arithmetic
+cases. Focused branch/control-flow sanitizer checks also passed.
+
+## MAC parser batch
+
+The explicit `--dialect=mac` reader now normalises unchanged DISK7. Independent
+fixtures assemble and execute across DOS and CP/M-86 with all four emitters.
+They cover macros/conditions, versioned forward SET expressions, embedded dollar
+separators, quoted bytes and labelled directives. Invalid identifiers, unknown
+conditional values, unsupported entry points and intermediate word-wrap cases
+fail atomically. See [mac.md](mac.md) for the supported subset.
+
+DISK7 remains blocked at native translation by unsupported/dynamic BDOS calls;
+normalization is not a program execution pass. Complete MAC/RMAC, far-pointer
+provenance and finite-valued BDOS dispatch remain separate work. Native service
+coverage remains CP/M-86 25/39 and DOS 16/39; this parser batch adds no services.
+
+Validation: shared M80 reader/preprocessor/macro/repetition/expression suites,
+region/layout/state tests and all eight MAC native combinations passed. MAC,
+preprocessing and SET tests also passed address/undefined-behaviour sanitizers
+with a strict warning-free C99 build. The corpus report has been regenerated.
+
+## Bounded BDOS analysis and native device batch
+
+- Register-copy, immediate, increment/decrement and direct control-flow analysis
+  now propagates up to four service values. Direct-call inputs merge at shared
+  routines; call return registers remain unknown.
+- Native dispatch selects only proven service alternatives and restores the
+  incoming flags before each native service. Unknown or unsupported alternatives
+  fail atomically. Set overflow becomes unknown rather than dropping values.
+- DOS FCB recognition accepts intervening proven-safe register operations between
+  the DE address load and service call, retaining the existing metadata audit.
+- Auxiliary/list output (4/5) has native lowering on both targets. All eight
+  combinations assemble; device execution is unverified. Counts are now 27/39
+  CP/M-86 and 18/39 DOS, measuring lowering rather than execution coverage.
+
+Both dispatch alternatives, shared wrappers and register copies execute across
+all eight combinations. FCB copy tests include nonadjacent service setup,
+partial records, extent boundaries, no-clobber and unsafe-access rejection.
+The corpus retains its previous translate/assemble/execute totals. WASH's OUTOP
+and DISK7's CON$LST are memory-loaded selectors and remain unknown; memory-value
+analysis is not implemented in this batch. DISK7 gets past function 5, but reset,
+user area, segmented pointers and its extended function 46 remain blockers.
+
+Next substantial work: conservative analysis of stored service selectors,
+stack-saved register values and explicit subroutine effects; separately, VTL-2
+code size and pointer provenance. No complete WASH/DISK7 execution is claimed.
+
+Batch validation completed: full regression passed, including all 70,400
+arithmetic cases and the remaining file/API suites. After modular cleanup,
+focused control-flow, dispatch, FCB and corpus checks passed again; the injected
+resolver unit test and dispatch/FCB paths passed sanitizer checks. Separated FCB
+setup also executes through all four DOS emitters. Device calls assemble in all
+eight combinations but remain execution-unverified. VTL-2 measurements are
+unchanged; its reference still passes and xlt88 still exceeds the fixed boundary.

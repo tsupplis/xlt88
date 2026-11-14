@@ -77,8 +77,8 @@ in_list(const char *list, const char *opcode)
 	return 0;
 }
 
-static long
-statement_size(const statement_t *stmt, const symbol_table_t *table, long pc)
+long
+source_size(const statement_t *stmt, const symbol_table_t *table, long pc)
 {
 	const char *op = stmt->opcode;
 	long value;
@@ -175,7 +175,7 @@ symbols_layout(const source_program_t *source, symbol_table_t *table, FILE *diag
 				if (!symbols_eval(table, stmt->first, pc, &pc) || pc < 0 || pc > 65535) pc = -1;
 				continue;
 			}
-			size = statement_size(stmt, table, pc);
+			size = source_size(stmt, table, pc);
 			if (pc < 0 || size < 0 || size > 65536 - pc) pc = -1;
 			else pc += size;
 		}

@@ -40,6 +40,7 @@ append_event(void *context, const output_t *event)
 	output = &program->events[program->count++];
 	memset(output, 0, sizeof(*output));
 	output->kind = event->kind;
+	output->short_branch = event->short_branch;
 	output->text = copy_text(event->text);
 	if (event->text && !output->text)
 		program->failed = 1;

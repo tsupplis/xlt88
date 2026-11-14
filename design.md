@@ -107,8 +107,8 @@ A target-specific lowering pass must leave the source program intact.
 
 Reader families cover Intel ASM, the specified MAC/RMAC dialects, Microsoft
 M80 source syntax (including its macro/directive model), and binary COM.
-Intel ASM is implemented; M80 has a partial flat-8080 reader. MAC/RMAC and
-COM readers remain planned.
+Intel ASM is implemented; M80 and MAC have partial flat-8080 readers. RMAC and
+COM readers remain planned. The MAC contract is documented in [mac.md](mac.md).
 The names of concrete assembler dialects and versions must be explicit in
 configuration. An `.asm` extension alone does not identify a dialect.
 A CP/M-80 `.COM` reader must decode instructions and accept code/data
@@ -619,10 +619,102 @@ are not guessed.
 `output_origin` carries a requested physical offset. Renderers generate padding
 and enforce that the expanded target has not passed that offset. DRI renderers
 need explicit conditional guards because RB alone does not reliably reject
-negative counts. The current implementation permits forward ordered regions;
-reordering data-first or overlapping source regions is a separate planning task.
+negative counts. The region planner also orders non-overlapping fixed source regions before
+lowering. Overlapping or unknown-sized reordered regions remain rejected.
+Target expansion still must fit every fixed origin.
 
 OS recognition propagates a known C only through a whitelist of instructions
 that preserve it, and invalidates the fact at labels/control transfers/clobbers.
 MVI C and LXI B establish constants. This pass remains independent of target
 selection and of the stricter DOS FCB storage proof.
+
+
+### Fixed-region planning implementation
+
+`regions_build(source, symbols, plan, diagnostics)` borrows parsed source and
+its source-address table and returns nonzero on success. `region_plan_t` owns
+an emission order of original record indices, a count and a reordered flag;
+`regions_destroy` releases it. No source records or symbol IDs are rewritten.
+`source_size` exposes the existing original-8080 sizing rules, returning -1 for
+unknown sizes. Regions begin at known ORGs and stop at the next ORG or END.
+
+Before CPU/OS lowering, the planner sorts out-of-order fixed regions, rejecting
+unknown sizes and source overlaps. OS annotations and generated boundary labels
+remain keyed by original record index. Lowering follows the planned order and
+emits the existing typed origin events. Each assembler still checks target
+expansion against fixed origins. Ordinary ordered streams retain their existing
+unknown-layout behavior. This is fixed-region ordering, not a relocation policy,
+a segmented image model, or imported target-address state.
+
+Arithmetic expressions evaluating to native entry 0 or 5 are now recognized in
+transfers, including EQU chains. Other expressions retain source instruction
+boundary checks. Native DOS name-only delete/rename are separate from opaque
+open-file metadata conversion and introduce no runtime FCB shadow table.
+
+
+### Proven short branches
+
+`target_shrink(target_program_t *)` runs after CPU/OS lowering and before the
+owned target becomes immutable for replay. It preserves labels and source
+records. An inverse conditional around one unconditional transfer may become a
+direct conditional only if its destination is unique and an upper bound on the
+entire displacement is within rel8 range. Internal conditional skips can also
+be marked short without changing their operation.
+
+`output_t.short_branch` records that proof. NASM already chooses short encodings
+when possible; the shared legacy formatter now avoids expanding a proven short
+condition. The bound table covers emitted 8086 instruction forms, reserves a
+segment-prefix allowance for memory operands, and rejects unknown operations.
+Data, reservations, alignment and origin changes are proof barriers. The pass
+never changes CPU arithmetic/flag lowering or removes fixed origins. Ownership
+of moved operand trees is transferred explicitly; repeated target replay remains
+read-only. Boundary, barrier, near/backward/far execution and sanitizer checks
+cover the pass separately from the full arithmetic suite.
+
+## MAC reader integration
+
+`mac_dialect` is an independent injected reader selected by `--dialect=mac`.
+`mac_read_file` passes its lexical reader to the shared `macro_read_file`
+preprocessor. The callback returns owned source records with physical source
+locations; includes use the same callback. MAC-specific identifier and literal
+normalization occurs before shared expression parsing. No emitter recognizes
+MAC syntax.
+
+Mutable SET definitions become fresh private EQU symbols. Uses bind to the
+version in force at that source position; later SET assignments cannot change
+previous uses. This also preserves forward address expressions. Known EQU
+values are folded to 16-bit values; unresolved EQU and SET expressions carry
+an explicit mask. Operations requiring unsupported intermediate word wrapping
+are rejected. This is a bounded subset, not a complete word-arithmetic IR.
+
+Labelled ORG becomes ORG followed by EQU $; labelled IF/END emits EQU $ before
+the directive. END entry operands are retained and validated by region planning:
+only a resolvable 0100h entry is currently supported. Original source records
+and line provenance remain the basis for state and diagnostics.
+
+## Bounded native-service recognition
+
+`recognize_os_sets` returns an owned array of `os_values_t`, one input-C fact
+per original source record. Each fact contains at most four byte values;
+count zero means unknown. `recognize_os_calls` remains a singleton projection
+for clients needing the older interface. Neither API selects an operating system.
+
+The finite dataflow tracks seven byte registers. Direct branch edges merge
+possible values; direct calls propagate input facts into their target and make
+return registers unknown. Independent labels are unknown entry points. Unresolved
+or indirect control flow makes labelled entries conservative. Memory loads and
+unsupported operations invalidate affected facts. The monotone union reaches a
+fixed point; exceeding the value bound produces unknown.
+
+CPU/OS lowering owns native service selection. Multiple values generate ordinary
+8086 conditional branches, saving/restoring flags around comparisons. All
+alternatives must lower successfully before output is committed. DOS FCB auditing
+remains separate; a multiple-service annotation cannot authorize opaque metadata
+conversion by itself. No interpreter or universal BDOS dispatch runtime is added.
+
+The recognition implementation separates graph/root construction, per-instruction
+state transfer and state merging. `tests/osrecog.c` constructs source records
+and injects a resolver directly, verifying shared-call facts, unknown joins and
+source immutability independently of parsers, operating systems and assemblers.
+Integration tests separately establish emitted native execution. New code keeps
+lowercase underscore names, `_t` typedefs and filename stems within eight characters.

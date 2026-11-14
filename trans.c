@@ -20,7 +20,9 @@
 
 #include "trans.h"
 #include "osrecog.h"
+#include "flags.h"
 #include "fcb.h"
+#include "regions.h"
 
 typedef struct translation {
 	const emitter_t *out;
@@ -35,9 +37,13 @@ typedef struct translation {
 	int errors;
 	int label_number;
 	int origin_seen;
+	long target_origin;
+	int regions_sorted;
 	int image_started;
 	long bdos_function;
+	os_values_t bdos_values;
 	int fcb_call, grow_fcb;
+	int flags_dead;
 } translation_t;
 
 static void
@@ -168,6 +174,10 @@ stax(translation_t *ctx)
 static void
 inx(translation_t *ctx)
 {
+	if (ctx->flags_dead) {
+		instruction(ctx->out, "inc", register_operand(ctx->statement.first, 1), no_operand);
+		return;
+	}
 	instruction(ctx->out, "lahf", no_operand, no_operand);
 	emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
 	instruction(ctx->out, "inc", register_operand(ctx->statement.first, 1), no_operand);
@@ -185,6 +195,7 @@ inr(translation_t *ctx)
 static void
 invert_auxiliary_carry(translation_t *ctx)
 {
+	if (ctx->flags_dead) return;
 	emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
 	instruction(ctx->out, "lahf", no_operand, no_operand);
 	emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
@@ -215,6 +226,10 @@ rlc(translation_t *ctx)
 static void
 dad(translation_t *ctx)
 {
+	if (ctx->flags_dead) {
+		instruction(ctx->out, "add", reg("bx"), register_operand(ctx->statement.first, 1));
+		return;
+	}
 	instruction(ctx->out, "lahf", no_operand, no_operand);
 	emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
 	instruction(ctx->out, "add", reg("bx"), register_operand(ctx->statement.first, 1));
@@ -237,6 +252,10 @@ ldax(translation_t *ctx)
 static void
 dcx(translation_t *ctx)
 {
+	if (ctx->flags_dead) {
+		instruction(ctx->out, "dec", register_operand(ctx->statement.first, 1), no_operand);
+		return;
+	}
 	instruction(ctx->out, "lahf", no_operand, no_operand);
 	emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
 	instruction(ctx->out, "dec", register_operand(ctx->statement.first, 1), no_operand);
@@ -419,6 +438,10 @@ sbb(translation_t *ctx)
 static void
 emit_8080_and(translation_t *ctx, operand_t operand)
 {
+	if (ctx->flags_dead) {
+		instruction(ctx->out, "and", reg("al"), operand);
+		return;
+	}
 	instruction(ctx->out, "push", reg("dx"), no_operand);
 	emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
 	instruction(ctx->out, "mov", reg("ah"), operand);
@@ -543,10 +566,62 @@ source_boundary(translation_t *ctx, const char *text)
 }
 
 static void
+native_service(translation_t *ctx, long function)
+{
+	if (!function) ctx->target->exit_program(ctx->out);
+	else if (!(ctx->fcb_call && ctx->target->file_call ?
+	    ctx->target->file_call(ctx->out, function, ctx->source_line) :
+	    ctx->target->bdos(ctx->out, function, ctx->source_line))) {
+		fprintf(ctx->diagnostics, "xlt88:%lu: BDOS function %ld needs a native port for %s\n",
+		    ctx->source_line, function, ctx->target->name);
+		diagnose(ctx, "cannot translate BDOS transfer: ", ctx->statement.first);
+	}
+}
+
+/* Recognition proves this finite set is exhaustive. Comparisons must not
+ * change the flags delivered to the chosen native operation. The final arm
+ * needs no comparison; unknown alternatives never reach this emitter. */
+static void
+service_dispatch(translation_t *ctx)
+{
+	int done = ctx->label_number++;
+	for (int k = 0; k < ctx->bdos_values.count; ++k) {
+		int next = ctx->label_number++;
+		int last = k + 1 == ctx->bdos_values.count;
+		if (!last) {
+			instruction(ctx->out, "pushf", no_operand, no_operand);
+			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+			instruction(ctx->out, "cmp", operand(operand_register, "cl"), value(operand_immediate, ctx->bdos_values.values[k]));
+			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+			instruction(ctx->out, "jne", operand(operand_internal_label, "svc"), value(operand_immediate, next));
+			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+			instruction(ctx->out, "popf", no_operand, no_operand);
+			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+		}
+		native_service(ctx, ctx->bdos_values.values[k]);
+		emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+		if (!last) {
+			instruction(ctx->out, "jmp", operand(operand_internal_label, "svc"), value(operand_immediate, done));
+			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+			emit(ctx->out, output_internal_definition, "svc", value(operand_immediate, next), no_operand);
+			instruction(ctx->out, "popf", no_operand, no_operand);
+			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+		}
+	}
+	emit(ctx->out, output_internal_definition, "svc", value(operand_immediate, done), no_operand);
+}
+
+static void
 transfer(translation_t *ctx, int tail)
 {
 	const char *destination = resolve_alias(ctx, ctx->statement.first);
 	long offset = destination != NULL ? number(destination) : -1;
+	long service;
+
+	/* EQU arithmetic may name a native entry, e.g. BDOS EQU 5+BASE.
+	 * Other expressions still require an original instruction boundary. */
+	if (offset < 0 && symbols_eval(ctx->symbols, ctx->statement.first, -1, &service) &&
+	    (service == 0 || service == 5)) offset = service;
 
 	if (!ctx->statement.second[0] && (destination == NULL || (offset < 0 && !is_label(destination)))) {
 		long bound = source_boundary(ctx, ctx->statement.first);
@@ -569,19 +644,15 @@ transfer(translation_t *ctx, int tail)
 		ctx->target->exit_program(ctx->out);
 		break;
 	case 5:
-		if (ctx->bdos_function == 0) {
-			ctx->target->exit_program(ctx->out);
-		} else if (ctx->bdos_function < 0) {
+		if (!ctx->bdos_values.count) {
 			diagnose(ctx, "BDOS call needs a statically proven function in C: ", ctx->statement.first);
-		} else if (!(ctx->fcb_call && ctx->target->file_call ?
-		    ctx->target->file_call(ctx->out, ctx->bdos_function, ctx->source_line) :
-		    ctx->target->bdos(ctx->out, ctx->bdos_function, ctx->source_line))) {
-			fprintf(ctx->diagnostics, "xlt88:%lu: BDOS function %ld needs a native port for %s\n",
-			    ctx->source_line, ctx->bdos_function, ctx->target->name);
-			diagnose(ctx, "cannot translate BDOS transfer: ", ctx->statement.first);
-		} else if (tail) {
-			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
-			ret(ctx);
+		} else {
+			if (ctx->bdos_values.count == 1) native_service(ctx, ctx->bdos_values.values[0]);
+			else service_dispatch(ctx);
+			if (tail && ctx->bdos_function != 0) {
+				emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+				ret(ctx);
+			}
 		}
 		break;
 	default:
@@ -957,12 +1028,13 @@ org(translation_t *ctx)
 	}
 	if (!ctx->origin_seen && !ctx->image_started) {
 		if (origin != 0x100) diagnose(ctx, "initial ORG must be 100h; out-of-order regions need an explicit port: ", ctx->statement.first);
-	} else if (pc < 0 || origin < pc) {
+	} else if ((!ctx->regions_sorted && (pc < 0 || origin < pc)) || origin < ctx->target_origin) {
 		diagnose(ctx, "backward/unknown ORG would overlap source regions: ", ctx->statement.first);
 	} else {
 		emit(ctx->out, output_origin, NULL, value(operand_immediate, origin), no_operand);
 	}
 	ctx->origin_seen = 1;
+	ctx->target_origin = origin;
 }
 
 static void
@@ -1174,7 +1246,9 @@ translate_program(const source_program_t *program, const symbol_table_t *symbols
 	translation_t *ctx = &translation;
 	size_t i;
 	long *functions = NULL;
+	os_values_t *sets = NULL;
 	fcb_plan_t fcbs = {0};
+	region_plan_t regions = {0};
 
 	ctx->boundaries = calloc(program->count ? program->count : 1, 1);
 	if (!ctx->boundaries) { diagnose(ctx, "cannot allocate boundary bindings", ""); goto cleanup; }
@@ -1193,22 +1267,33 @@ translate_program(const source_program_t *program, const symbol_table_t *symbols
 		}
 	}
 	ctx->source_line = 0;
-	if (!recognize_os_calls(program, recognition_value, ctx, &functions)) {
+	if (!recognize_os_sets(program, recognition_value, ctx, &sets) ||
+	    !(functions = malloc((program->count ? program->count : 1) * sizeof(*functions)))) {
 		diagnose(ctx, "cannot allocate OS annotations", "");
 		goto cleanup;
 	}
+	for (i = 0; i < program->count; ++i)
+		functions[i] = sets[i].count == 1 ? sets[i].values[0] : -1;
 	if (backend->file_call && !fcb_analyze(program, symbols, functions, &fcbs, diagnostics)) {
 		++ctx->errors;
 		goto cleanup;
 	}
+	if (!regions_build(program, symbols, &regions, diagnostics)) {
+		++ctx->errors;
+		goto cleanup;
+	}
+	ctx->regions_sorted = regions.reordered;
 	emit(ctx->out, output_header, backend->name, no_operand, no_operand);
-	for (i = 0; i < program->count; ++i) {
+	for (size_t position = 0; position < regions.count; ++position) {
+		i = regions.order[position];
 		const source_record_t *record = &program->records[i];
 		ctx->source_line = record->line;
 		ctx->record = record;
 		ctx->statement = record->statement;
 		if (ctx->boundaries[i]) emit(ctx->out, output_internal_definition, "src", value(operand_immediate, i), no_operand);
+		ctx->flags_dead = flags_dead_after(program, i);
 		ctx->bdos_function = functions[i];
+		ctx->bdos_values = sets[i];
 		ctx->fcb_call = fcbs.calls && fcbs.calls[i];
 		ctx->grow_fcb = fcbs.grow && fcbs.grow[i];
 		if (record->problem)
@@ -1219,8 +1304,10 @@ translate_program(const source_program_t *program, const symbol_table_t *symbols
 			translate(ctx);
 	}
 cleanup:
+	regions_destroy(&regions);
 	fcb_destroy(&fcbs);
 	free(functions);
+	free(sets);
 	free(ctx->boundaries);
 	return ctx->errors != 0;
 }
@@ -1231,6 +1318,10 @@ lower_named(const source_program_t *source, const symbol_table_t *symbols, const
 {
 	emitter_t builder = target_builder(target);
 	int result = translate_program(source, symbols, backend, &builder, diagnostics);
+	if (!result && !target->failed && !target_shrink(target)) {
+		target->failed = 1;
+		target->error = "cannot allocate branch optimisation";
+	}
 	if (target->failed) {
 		char message[512];
 		snprintf(message, sizeof(message), "cannot build target program: %s", target->error ? target->error : "allocation failure");

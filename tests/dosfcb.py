@@ -30,7 +30,7 @@ with tempfile.TemporaryDirectory() as directory:
         assert result.returncode == 0 and expected in result.stdout, (result.stdout, result.stderr)
 
     # The first run uses exactly the existing CP/M source, without edits.
-    for text in (source_text, source_text.replace('ds 36', 'ds 33'),
+    for text in (source_text, source_text.replace('mvi c, 15', 'mvi a, 15\n        nop\n        mov c, a'), source_text.replace('ds 36', 'ds 33'),
                  source_text.replace('mvi c, 22\n        call bdos', 'mvi c, 22\n        cnz bdos')):
         build(text)
         for length in (0, 1, 127, 128, 129, 127*128, 128*128, 129*128, 260*128):

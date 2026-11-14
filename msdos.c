@@ -24,6 +24,12 @@ bdos(const emitter_t *out, long function, unsigned long site)
 	case 2:
 		service = "DOS console output, character in DL";
 		break;
+	case 4:
+		service = "native auxiliary output, character in DL";
+		break;
+	case 5:
+		service = "native list output, character in DL";
+		break;
 	case 9:
 		service = "DOS print dollar-terminated string at DS:DX";
 		break;
@@ -34,6 +40,19 @@ bdos(const emitter_t *out, long function, unsigned long site)
 	case 11:
 		returns_byte = 1;
 		service = "DOS console input status";
+		break;
+	case 14:
+		/* CP/M 2.2 defines no result for select disk. DOS returns its
+		 * drive count in AL; it is not a CP/M success/error status. */
+		service = "DOS select default drive, zero-based drive in DL";
+		break;
+	case 19:
+		returns_byte = 1;
+		service = "DOS delete, CP/M name fields at DS:DX";
+		break;
+	case 23:
+		returns_byte = 1;
+		service = "DOS rename, old name at +1 and new name at +17";
 		break;
 	case 25:
 		returns_byte = 1;

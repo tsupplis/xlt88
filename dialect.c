@@ -271,6 +271,7 @@ source_destroy(source_program_t *program)
 int
 source_read(const dialect_t *dialect, FILE *in, const char *path, source_program_t *program)
 {
+	if (dialect == &mac_dialect) return mac_read_file(in, path, program);
 	return dialect == &m80_dialect ? m80_read_file(in, path, program) : dialect->read(in, program);
 }
 

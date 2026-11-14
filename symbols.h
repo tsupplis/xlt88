@@ -36,6 +36,7 @@ const char *symbol_alias(const symbol_table_t *, const char *);
 long symbol_number(const char *);
 long symbol_value(const symbol_table_t *, const char *);
 int symbol_equal(const char *, const char *);
+long source_size(const statement_t *, const symbol_table_t *, long);
 int symbols_layout(const source_program_t *, symbol_table_t *, FILE *);
 int symbols_eval(const symbol_table_t *, const char *, long, long *);
 int symbols_read(symbol_table_t *, FILE *, FILE *);

@@ -1,6 +1,6 @@
 PROG =	xlt88
-OBJS = mexpr.o macro.o m80.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o norm8080.o \
-	osrecog.o trans.o emitter.o target.o nasm.o asm86.o asmfmt.o masm.o drasm86.o msdos.o cpm86.o
+OBJS = flags.o mexpr.o macro.o m80.o mac.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o regions.o norm8080.o \
+	osrecog.o trans.o emitter.o target.o shrink.o nasm.o asm86.o asmfmt.o masm.o drasm86.o msdos.o cpm86.o
 PYTHON = python3
 
 all: ${PROG}
@@ -17,7 +17,7 @@ xlt88.o trans.o dialect.o norm8080.o osrecog.o: dialect.h
 trans.o osrecog.o: osrecog.h
 
 clean:
-	rm -f ${PROG} ${OBJS} tests/iface tests/expr tests/readers
+	rm -f ${PROG} ${OBJS} tests/iface tests/expr tests/readers tests/shrink tests/osrecog
 
 tests/iface: tests/iface.c ${OBJS}
 	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/iface.c $(filter-out xlt88.o,${OBJS})
@@ -25,14 +25,18 @@ tests/iface: tests/iface.c ${OBJS}
 tests/expr: tests/expr.c expr.o expr.h
 	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/expr.c expr.o
 
-tests/readers: tests/readers.c dialect.o mexpr.o macro.o m80.o symbols.o layout.o expr.o dialect.h
-	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/readers.c dialect.o mexpr.o macro.o m80.o symbols.o layout.o expr.o
+tests/readers: tests/readers.c dialect.o mexpr.o macro.o m80.o mac.o symbols.o layout.o expr.o dialect.h
+	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/readers.c dialect.o mexpr.o macro.o m80.o mac.o symbols.o layout.o expr.o
 
-test: ${PROG} tests/iface tests/expr tests/readers
+test: ${PROG} tests/iface tests/expr tests/readers tests/shrink tests/osrecog
 	./tests/iface
 	./tests/expr
 	./tests/readers
+	./tests/shrink
+	./tests/osrecog
+	${PYTHON} tests/shrink.py
 	${PYTHON} tests/readers.py
+	${PYTHON} tests/mac.py
 	${PYTHON} tests/preproc.py
 	${PYTHON} tests/macros.py
 	${PYTHON} tests/repeat.py
@@ -48,12 +52,20 @@ test: ${PROG} tests/iface tests/expr tests/readers
 	XLT_EMIT=drasm86 ${PYTHON} tests/emitters.py
 	XLT_TARGET=msdos XLT_EMIT=drasm86 ${PYTHON} tests/emitters.py
 	${PYTHON} tests/flow.py
+	${PYTHON} tests/ossets.py
+	${PYTHON} tests/devices.py
+	${PYTHON} tests/regions.py
+	${PYTHON} tests/console.py
+	${PYTHON} tests/forth.py
 	${PYTHON} tests/arith.py
 	${PYTHON} tests/state.py
 	${PYTHON} tests/layout.py
 	${PYTHON} tests/fileops.py
 	${PYTHON} tests/randio.py
 	${PYTHON} tests/dosfcb.py
+	${PYTHON} tests/fcbflow.py
+	${PYTHON} tests/dosnames.py
+	${PYTHON} tests/drives.py
 
 .PHONY: all clean test
 
@@ -94,3 +106,24 @@ corpus: ${PROG}
 dialect.o: expr.h
 
 osrecog.o: symbols.h
+
+trans.o regions.o: regions.h
+regions.o: symbols.h dialect.h
+
+vtlbench: ${PROG}
+	${PYTHON} tests/vtlbench.py vtlbench.md
+
+.PHONY: vtlbench
+
+shrink.o: target.h emitter.h expr.h
+
+tests/shrink: tests/shrink.c target.o shrink.o emitter.o expr.o
+	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/shrink.c target.o shrink.o emitter.o expr.o
+
+mac.o: dialect.h expr.h
+
+tests/osrecog: tests/osrecog.c ${OBJS} osrecog.h
+	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/osrecog.c $(filter-out xlt88.o,${OBJS})
+
+flags.o trans.o: flags.h
+flags.o: dialect.h

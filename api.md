@@ -16,15 +16,17 @@ References
 | --- | --- | --- | --- |
 | 0 | Terminate | Implemented | Implemented via INT 20h |
 | 1, 2, 9 | Console input, output, string | Implemented | Implemented |
-| 3–5 | Reader, punch, list | Native device calls to verify | AH=03h–05h, compare device semantics |
-| 6 | Direct console I/O | Check CP/M 2.2 mode and status conventions | AH=06h, verify modes and return values |
+| 3 | Reader input | Native device call to verify | AH=03h, compare device semantics |
+| 4, 5 | Punch/auxiliary and list output | Native lowering; all emitters assemble; device execution unverified | Native AH=04h/05h lowering; all emitters assemble; device execution unverified |
+| 6 | Direct console I/O | Implemented; FF polls input, FE output uses function 2 | Implemented via AH=06h, result copied to A and L |
 | 7, 8 | Get/set IOBYTE | Native calls to verify | Port device selection explicitly |
 | 10 | Buffered input | Implemented; empty/full-capacity input and guard byte tested | Pending: DOS maximum includes its CR terminator; do not pass a CP/M-sized buffer unchanged |
 | 11 | Input status | Implemented; native status result | Implemented via AH=0Bh, result copied to A and L |
 | 12 | BDOS version | Implemented | Port the version-dependent branch explicitly |
-| 13, 14 | Reset disks, select drive | Native calls to verify | AH=0Dh–0Eh, check drive and reset semantics |
+| 13 | Reset disks | Pending: compare boot/current-drive, DMA and reset-result semantics | Pending: AH=0Dh alone does not reproduce the CP/M reset contract |
+| 14 | Select drive | Implemented via native function 14 | Implemented via AH=0Eh; native drive count is not a CP/M status |
 | 15, 16, 22 | Open/close/create | Implemented | Implemented for proven opaque FCB uses; safe create probe |
-| 19, 23 | Delete/rename | Implemented; success/missing-file tests | Pending |
+| 19, 23 | Delete/rename | Implemented; success/missing-file tests | Implemented through native name fields; success/missing/delete-wildcard tests; rename collision execution unverified |
 | 17, 18 | Directory search | Implemented; wildcard/DMA entries/end-of-search tested | AH=11h–12h, consume native DOS search results |
 | 20, 21 | Sequential read/write | Implemented; translated copies through 260 records, EOF and A=L checks | Implemented for proven opaque FCB uses; padded partial-read status handled |
 | 24 | Login vector | Native word result to verify | Port drive enumeration explicitly |
@@ -44,7 +46,8 @@ taking an interrupt vector, parsing a filename into a DOS FCB, and
 getting or setting the date and time. Expose those as native operations
 when adding a source syntax for DOS-specific calls. Check their service
 numbers and argument/result ABI against the 1.00 entry points before
-adding them. The local DOS 1.00 INT 21h dispatcher accepts AH up to 2Dh.
+adding them. The supplied DOS 1.25 kernel dispatcher accepts AH up to 2Dh; it is a
+corroborating source, not proof of DOS 1.00 availability.
 That limit alone does not establish the behavior of every slot.
 
 For each automatic lowering, test the input registers, documented return
@@ -106,10 +109,74 @@ Tests exercise empty input and a full three-character buffer without changing
 the byte beyond its capacity. Function 11 uses native status on both targets;
 DOS mirrors AL into BL for the source A/L result convention. Installed emu2
 returns not-ready for redirected stdin, which is the executed status case;
-ready/live-console behavior is not claimed as tested.
+`tests/console.py` additionally checks ready status and direct input/output with
+a terminal handle and injected keyboard input on all eight combinations.
+Function 6 lowers directly to the native service, except CP/M-86 FE output:
+its native function 6 reserves FE for status, so that byte uses function 2.
 
 Recognition now tracks C through an explicitly whitelisted straight-line
 sequence, with MVI C and LXI B as constant definitions. Labels, transfers,
 unknown operations and writes to C/BC invalidate the proof. This is not
 interprocedural or join-aware dataflow. DOS FCB analysis retains its separate
 storage and provenance requirements; recognizing a function does not waive them.
+
+## DOS name-only file services
+
+Functions 19 and 23 lower to DOS AH=13h and AH=17h, mirroring AL into BL for
+A=L. These operations consume compatible name fields: drive/name at FCB+0/+1,
+and the new rename name at +17. They do not reinterpret CP/M allocation or
+record metadata and do not require the opaque open-file conversion. Native DOS
+namespace/device/attribute rules apply; this does not emulate CP/M user areas.
+
+`tests/dosnames.py` executes exact deletion, wildcard deletion, missing-file
+failure and rename success/missing-file failure on all four emitters. It checks
+A=L, data preservation and guards around the name record. Native DOS rejects an
+existing rename destination (RENAME/RENERR in the supplied DOS source). Installed
+emu2 instead calls host `rename()` and overwrites it. Collision acceptance is
+therefore explicitly unverified; set `DOS_RENAME=1` with a corrected emulator
+to require the no-overwrite execution check. No emulator workaround is emitted.
+
+## Drive selection
+
+Function 14 uses zero-based drive in E/DL on both targets. Valid configured
+native drives are tested; invalid/unavailable-drive behaviour remains native.
+CP/M 2.2 defines no result for this operation, so the DOS drive-count result is
+not advertised or converted as a source success/error byte. `tests/drives.py`
+checks A/B/C selection and function 25's A=L result on all eight combinations,
+then verifies that zero-drive name records affect files on the selected drive.
+Distinct temporary A/B/C mappings and untouched files detect selection mistakes.
+
+Function 13 remains blocked. The supplied CP/M-86 MRSDSY resets login/read-only
+vectors and selects CURDRV; it does not itself reset the DMA offset. This needs
+reconciliation with the CP/M-80 reset contract, as does DOS disk flush. No
+substitute reset state or guessed return value is emitted.
+
+## Auxiliary and list output
+
+BDOS 4 and 5 now lower to native device output on both targets, passing E as
+DL and defining no fabricated result. CP/M-86 uses INT E0h and preserves ES;
+DOS uses AH=04h/05h and INT 21h. These select the target's native devices;
+CP/M IOBYTE configuration is not emulated on DOS.
+
+Contract evidence: the supplied CP/M-86 `bdos.a86` dispatch table and BLIST
+handler; the supplied DOS `dos.asm` PUNCH/LIST handlers; and Microsoft's
+[MS-DOS Encyclopedia, functions 04h and 05h](https://www.pcjs.org/documents/books/mspl13/msdos/encyclopedia/section5/),
+which explicitly lists availability from DOS 1.0. The local DOS source is
+1.25, so version availability is checked separately.
+
+`tests/devices.py` translates and assembles both calls in all eight combinations.
+Device output execution is unverified; the installed CP/M emulator does not
+implement these two BDOS entries. No emulator workaround is emitted.
+
+## Proven service sets
+
+Recognition follows direct branches and direct-call inputs, tracking up to
+four possible byte values per register. A shared routine can receive several
+known service values. Return registers after a call remain unknown. Unknown
+paths or sets exceeding the bound are rejected; no catch-all runtime BDOS
+handler is generated. Every possible service must have a native lowering.
+
+DOS opaque-FCB services still require the separate whole-program FCB audit.
+Mixed service sets do not bypass that audit. An FCB address may now be loaded
+before intervening proven DE-preserving register moves, immediate loads or NOPs;
+control transfers and possible pointer exposure remain barriers.

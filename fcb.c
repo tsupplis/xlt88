@@ -15,6 +15,20 @@ file_function(long function)
 	    function == 21 || function == 22;
 }
 
+/* The address may survive these instructions, but must not escape into
+ * another register or memory where the whole-program audit cannot follow it. */
+static int
+preserves_fcb_address(const statement_t *stmt)
+{
+	if (equal(stmt->opcode, "nop"))
+		return 1;
+	if (!equal(stmt->opcode, "mvi") && !equal(stmt->opcode, "mov"))
+		return 0;
+	return !equal(stmt->first, "d") && !equal(stmt->first, "e") &&
+	    !equal(stmt->first, "m") && !equal(stmt->second, "d") &&
+	    !equal(stmt->second, "e") && !equal(stmt->second, "m");
+}
+
 static size_t
 previous(const source_program_t *source, size_t i)
 {
@@ -97,19 +111,26 @@ fcb_analyze(const source_program_t *source, const symbol_table_t *symbols,
 	allowed = calloc(count ? count : 1, 1);
 	regions = calloc(count ? count : 1, sizeof(*regions));
 	if (!plan->calls || !plan->grow || !objects || !allowed || !regions) goto done;
-	/* A call must receive an exact, immediately loaded object address. */
+	/* A call must receive an exact object address through a proven-safe
+	 * straight-line path; metadata safety is checked separately below. */
 	for (i = 0; i < count; ++i) {
 		const statement_t *stmt = &source->records[i].statement;
-		size_t mvi, load;
+		size_t load;
 		const symbol_t *object;
 		if (!transfer(stmt) || symbol_value(symbols, stmt->first) != 5 || !file_function(functions[i])) continue;
 		found = 1;
-		mvi = previous(source, i);
-		load = previous(source, mvi);
-		problem = "file call needs a proven FCB address loaded immediately before MVI C";
-		if (mvi == count || load == count || stmt->label[0] || source->records[mvi].statement.label[0]) goto done;
+		load = previous(source, i);
+		problem = "file call needs a proven FCB address in DE";
+		if (stmt->label[0]) goto done;
+		while (load != count) {
+			const statement_t *candidate = &source->records[load].statement;
+			if (equal(candidate->opcode, "lxi") && equal(candidate->first, "d")) break;
+			if (candidate->label[0]) goto done;
+			if (!preserves_fcb_address(candidate)) goto done;
+			load = previous(source, load);
+		}
+		if (load == count) goto done;
 		stmt = &source->records[load].statement;
-		if (!equal(stmt->opcode, "lxi") || !equal(stmt->first, "d")) goto done;
 		object = binding(symbols, stmt->second);
 		if (!object || object->is_equ) goto done;
 		objects[object->id - 1] = 1;

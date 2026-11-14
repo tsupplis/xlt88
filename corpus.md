@@ -7,11 +7,14 @@ Translate/assemble counts cover four emitters × two OS targets. Only the two ex
 | Source | SHA256 prefix | Reader | Normalize | Translate | Assemble | Execute |
 | --- | --- | --- | --- | --- | --- | --- |
 | balloon.asm | fad691a121ea | intel | pass | 2/8 | 2/8 | not run |
+| disk7.mac | fb55c1cdb24c | mac | pass | 0/8 | 0/8 | not run |
 | forth.asm | a44d9f568d61 | m80 | pass | 8/8 | 8/8 | not run |
 | hello.asm | 774bec9c4bfe | intel | pass | 8/8 | 8/8 | 8/8 |
 | pilot.asm | bc015288f546 | intel | pass | 0/8 | 0/8 | not run |
 | tinidisk.asm | b3f1f395ba09 | intel | pass | 0/8 | 0/8 | not run |
 | tst8080.asm | 800a83528f40 | intel | pass | 8/8 | 8/8 | 8/8 |
+| vtl2.asm | 215bff18ad99 | intel | pass | 4/8 | 0/8 | not run |
+| wash15.asm | 76d4229a49fd | m80 | pass | 0/8 | 0/8 | not run |
 
 Excluded existing 8086 references: copy-dos.asm, copycpm.asm, test1.asm, test2.asm.
 
@@ -33,9 +36,25 @@ masm3/msdos: xlt88: MASM 3 requires a symbolic branch target
 drasm86/msdos: xlt88: RASM-86 requires a symbolic branch target
 ```
 
+## disk7.mac
+
+The MAC subset now normalizes the unchanged source, including dollar separators, macros, labelled directives and forward SET. Translation remains blocked by dynamic BDOS functions and unsupported native services, including far-pointer consumers. Reference: examples/ref/disk7.a86.
+
+Observed blocker samples (at most three diagnostic lines per combination):
+
+```text
+nasm/msdos: xlt88: DOS FCB analysis: unrecognized subroutine may expose FCB storage
+```
+
+```text
+nasm/cpm86: xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1230: BDOS call needs a statically proven function in C: BDOS
+xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1238: BDOS call needs a statically proven function in C: BDOS
+xlt88:2347: BDOS function 13 needs a native port for cpm86
+```
+
 ## forth.asm
 
-NEXT+3 now binds to an original instruction boundary; all eight combinations build. Execution remains unverified: IOS reads the BIOS vector at address 1 and jumps through it; a native console/disk port and threaded-dictionary layout checks are required.
+NEXT+3 now binds to an original instruction boundary; all eight combinations build. The original retains its BIOS vector dependencies and is not executed here. Separately, tests/forth.py executes the explicit console-only tests/figforth.py derivative in all eight combinations; disk/printer requests are rejected.
 
 ## hello.asm
 
@@ -43,14 +62,14 @@ Explicit console/CPU smoke fixture.
 
 ## pilot.asm
 
-Data precedes code in source (ORG SYSDAT then ORG PSTRT); region reordering is not implemented. ASCAN refers to an external monitor jump table. Forward ordered ORG gaps are supported, but this program needs an explicit layout/monitor port.
+Fixed data-before-code regions now reorder without relocation. ASCAN/CO and other monitor hooks remain unresolved; translation and execution are not established.
 
 Observed blocker samples (at most three diagnostic lines per combination):
 
 ```text
-nasm/msdos: xlt88:81: initial ORG must be 100h; out-of-order regions need an explicit port: SYSDAT
-xlt88:123: backward/unknown ORG would overlap source regions: PSTRT
-xlt88:244: unsupported transfer target expression: ASCAN
+nasm/msdos: xlt88:244: unsupported transfer target expression: ASCAN
+xlt88:511: unsupported transfer target expression: CO
+xlt88:513: unsupported transfer target expression: CO
 ```
 
 ## tinidisk.asm
@@ -60,7 +79,7 @@ Computed offset transfers and straight-line BDOS C propagation are improved. RST
 Observed blocker samples (at most three diagnostic lines per combination):
 
 ```text
-nasm/msdos: xlt88: DOS FCB analysis: file call needs a proven FCB address loaded immediately before MVI C
+nasm/msdos: xlt88: DOS FCB analysis: file call needs a proven FCB address in DE
 ```
 
 ```text
@@ -72,3 +91,47 @@ xlt88:197: unsupported 8080 restart vector: 5
 ## tst8080.asm
 
 Explicit console/CPU smoke fixture.
+
+## vtl2.asm
+
+Fixed ORG 0800h keeps variables page-aligned, but translated code outgrows that region. No automatic relocation is assumed. DOS also needs default-FCB proof. Reference: examples/ref/vtl2.a86.
+
+Observed blocker samples (at most three diagnostic lines per combination):
+
+```text
+nasm/msdos: xlt88: DOS FCB analysis: file call needs a proven FCB address in DE
+```
+
+```text
+nasm/cpm86: (['nasm', '-Werror', '-f', 'bin', 'example.asm', '-o', 'example.com'], b'', b'example.asm:1890: error: TIMES value -413 is negative\n')
+```
+
+```text
+asm86/cpm86: (['cpm86_asm86', 'example.a86'], b'\r\nCP/M-86 / CCP/M-86 8086 ASSEMBLER VER 1.1N2\r\nEND OF PASS 1\r\nEND OF PASS 2\r\n** ERROR NO: 10 **  NEAR: "XOVFLOW"   UNDEFINED ELEMENT OF EXPRESSION\r\n 09B1 0000                      dw x_ovflow ; translated code exceeds ORG\r\nEND OF ASSEMBLY.  NUMBER OF ERRORS:   1.  USE FACTOR: 11%\r\n\r\n', b'ERR: cpm86_asm86: fatal assembly error(s) detected; removing example.h86\n')
+```
+
+```text
+masm3/cpm86: (['pcdev_masm3', 'example.asm,example.obj;'], b'Microsoft MACRO Assembler  Version 3.00               \r\n(C)Copyright Microsoft Corp 1981, 1983, 1984\r\n\r\n 09A6  0000 U                   \tdw x_ovflow ; translated code exceeds ORG\r\n E r r o r   ---\t9:Symbol not defined            \r\n 09A8     01 [                  \tdb (2048-($-x_entry+100h)) dup(0)\r\n E r r o r   ---\t72:Illegal value for DUP count   \r\n\r\n34526 Bytes free   \r\n\r\nWarning Severe\r\nErrors\tErrors \r\n0\t2\r\n', b'')
+```
+
+```text
+drasm86/cpm86: b'--------------------------------------------------\r\nRASM-86 Assembler   12-Mar-87  PC-DOS Version 1.4a\r\nSerial No. XXXX-0000-654321    All Rights Reserved\r\nCopyright (C) 1982-86       Digital Research, EDC.\r\n--------------------------------------------------\r\n\r\nEnd of Pass 1\r\nEnd of Pass 2\r\n** ERROR NO: 10 **  NEAR: "X_OVFLOW"   UNDEFINED ELEMENT OF EXPRESSION\r\n 09B1 0000                        dw x_ovflow ; translated code exceeds ORG\r\n** ERROR NO: 31   Current segment is too big (over 64K)\r\n 09B3                             rb (2048-(p_1-x_entry+100h))\r\n\r\nCODE  009B3\r\n\r\nEnd of assembly.  Number of errors:   2.  Use factor: 14%\r\n'
+```
+
+## wash15.asm
+
+Arithmetic BDOS/WBOOT aliases now resolve. Dynamic MOV C,A dispatch and BDOS 13 remain blocked on CP/M-86; DOS also needs broader FCB analysis. Reference: examples/ref/was15.a86.
+
+Observed blocker samples (at most three diagnostic lines per combination):
+
+```text
+nasm/msdos: xlt88:259: BDOS function 17 needs a native port for msdos
+xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/wash15.asm:259: cannot translate BDOS transfer: BDOS
+xlt88:338: BDOS function 18 needs a native port for msdos
+```
+
+```text
+nasm/cpm86: xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/wash15.asm:872: BDOS call needs a statically proven function in C: BDOS
+xlt88:1121: BDOS function 13 needs a native port for cpm86
+xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/wash15.asm:1121: cannot translate BDOS transfer: 05H
+```

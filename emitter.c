@@ -4,7 +4,7 @@ void
 emit(const emitter_t *emitter, output_kind_t kind, const char *text,
     operand_t first, operand_t second)
 {
-	const output_t event = { kind, text, {first, second} };
+	const output_t event = { kind, text, {first, second}, 0 };
 	emitter->write(emitter->context, &event);
 }
 

@@ -186,7 +186,7 @@ write_asm86(void *context, const output_t *event)
 		}
 		/* ASM86 cannot relax out-of-range conditional jumps. */
 		for (i = 0; i < sizeof(jumps)/sizeof(jumps[0]); ++i) if (!strcmp(event->text, jumps[i])) break;
-		if (i < sizeof(jumps)/sizeof(jumps[0])) {
+		if (i < sizeof(jumps)/sizeof(jumps[0]) && !event->short_branch) {
 			fprintf(out, "\t%s z_%lu\n\tjmp", jumps[i ^ 1], ++ctx->branch);
 			if (ctx->masm) fputs(" near ptr", out);
 			write_arguments(ctx, event);

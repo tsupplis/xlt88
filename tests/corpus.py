@@ -13,12 +13,15 @@ flavors = ('nasm', 'asm86', 'masm3', 'drasm86')
 targets = ('msdos', 'cpm86')
 # These are already 8086 output/reference sources, not translation inputs.
 outputs = {'copy-dos.asm', 'copycpm.asm', 'test1.asm', 'test2.asm'}
-readers = {'forth.asm': 'm80'}
+readers = {'forth.asm': 'm80', 'wash15.asm': 'm80', 'disk7.mac': 'mac'}
 smoke = {'hello.asm': b'Hello, world', 'tst8080.asm': b'CPU IS OPERATIONAL'}
 notes = {
+    'disk7.mac': 'The MAC subset now normalizes the unchanged source, including dollar separators, macros, labelled directives and forward SET. Translation remains blocked by dynamic BDOS functions and unsupported native services, including far-pointer consumers. Reference: examples/ref/disk7.a86.',
+    'wash15.asm': 'Arithmetic BDOS/WBOOT aliases now resolve. Dynamic MOV C,A dispatch and BDOS 13 remain blocked on CP/M-86; DOS also needs broader FCB analysis. Reference: examples/ref/was15.a86.',
+    'vtl2.asm': 'Fixed ORG 0800h keeps variables page-aligned, but translated code outgrows that region. No automatic relocation is assumed. DOS also needs default-FCB proof. Reference: examples/ref/vtl2.a86.',
     'balloon.asm': 'SOL-20 display/ROM addresses; execution requires an explicit hardware port.',
-    'forth.asm': 'NEXT+3 now binds to an original instruction boundary; all eight combinations build. Execution remains unverified: IOS reads the BIOS vector at address 1 and jumps through it; a native console/disk port and threaded-dictionary layout checks are required.',
-    'pilot.asm': 'Data precedes code in source (ORG SYSDAT then ORG PSTRT); region reordering is not implemented. ASCAN refers to an external monitor jump table. Forward ordered ORG gaps are supported, but this program needs an explicit layout/monitor port.',
+    'forth.asm': 'NEXT+3 now binds to an original instruction boundary; all eight combinations build. The original retains its BIOS vector dependencies and is not executed here. Separately, tests/forth.py executes the explicit console-only tests/figforth.py derivative in all eight combinations; disk/printer requests are rejected.',
+    'pilot.asm': 'Fixed data-before-code regions now reorder without relocation. ASCAN/CO and other monitor hooks remain unresolved; translation and execution are not established.',
     'tinidisk.asm': 'Computed offset transfers and straight-line BDOS C propagation are improved. RST vectors remain blocked: their zero-page bodies are commented out in this source, and some consume inline bytes through the return address. DOS FCB proof also remains conservative.',
 }
 report = ['# Example acceptance measurements', '',
@@ -31,7 +34,7 @@ details = []
 failed_smoke = False
 with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
-    for source in sorted((root / 'examples').glob('*.asm')):
+    for source in sorted(list((root / 'examples').glob('*.asm')) + list((root / 'examples').glob('*.mac'))):
         if source.name in outputs:
             continue
         dialect = readers.get(source.name, 'intel')

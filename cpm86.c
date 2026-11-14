@@ -26,10 +26,18 @@ bdos(const emitter_t *out, long function, unsigned long site)
 	case 2:
 		service = "console output, character in DL";
 		break;
+	case 4:
+		service = "native auxiliary output, character in DL";
+		break;
+	case 5:
+		service = "native list output, character in DL";
+		break;
+	case 6: 
+		service = "direct console I/O, CP/M 2.2 modes"; 
+		break;
 	case 9:
 		service = "print dollar-terminated string at DS:DX";
 		break;
-	case 6: service = "direct console I/O, CP/M 2.2 modes"; break;
 	case 10: 
 		service = "read CP/M console buffer at DS:DX"; 
 		break;
@@ -39,14 +47,21 @@ bdos(const emitter_t *out, long function, unsigned long site)
 	case 12:
 		service = "get BDOS version";
 		break;
+	case 14:
+		service = "select native drive, zero-based drive in DL";
+		break;
 	case 15:
 		service = "open file, CP/M FCB at DS:DX";
 		break;
 	case 16:
 		service = "close file, CP/M FCB at DS:DX";
 		break;
-	case 17: service = "search first, CP/M directory entries in DMA"; break;
-	case 18: service = "search next, CP/M directory entries in DMA"; break;
+	case 17: 
+		service = "search first, CP/M directory entries in DMA"; 
+		break;
+	case 18: 
+		service = "search next, CP/M directory entries in DMA"; 
+		break;
 	case 19:
 		service = "delete file, CP/M FCB at DS:DX";
 		break;

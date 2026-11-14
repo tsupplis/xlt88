@@ -89,6 +89,9 @@ with tempfile.TemporaryDirectory() as directory:
         for flavor in ('nasm','asm86','masm3','drasm86'):
             build('flow',source,flavor)
             assert b'FLOW OK' in execute('flow'), (target,flavor)
+            aliases = 'base0 equ 0\nbdos equ 5+base0\nwboot equ base0+0\n' + source.replace('call 5','call bdos').replace('jmp 0','jmp wboot')
+            build('alias',aliases,flavor)
+            assert b'FLOW OK' in execute('alias'), (target,flavor)
             build('status',status,flavor)
             # emu2 reports redirected stdin as not-ready; verify A=L=0.
             assert b'STATUS OK' in execute('status',input=b'Z\r'), (target,flavor)
@@ -114,7 +117,6 @@ with tempfile.TemporaryDirectory() as directory:
         (' jmp data+1\ndata: db 0,0,0\n end\n','transfer target'),
         (' mvi c,9\nsite: call 5\n end\n','statically proven'),
         (' mvi c,9\n inx b\n call 5\n end\n','statically proven'),
-        (' mvi c,9\n inr c\n call 5\n end\n','statically proven'),
         (' mvi c,9\n pop b\n call 5\n end\n','statically proven'),
         (' mvi c,9\n mov c,a\n call 5\n end\n','statically proven'),
         (' mvi c,9\n call helper\n call 5\nhelper: ret\n end\n','statically proven'),

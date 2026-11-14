@@ -3,7 +3,16 @@ from pathlib import Path
 import tempfile
 from toolrun import runner
 
-source = '''wait: mvi c,6
+source = '''ready: mvi c,11
+ call 5
+ ora a
+ jz ready
+ cpi 255
+ jnz failed
+ mov a,l
+ cpi 255
+ jnz failed
+wait: mvi c,6
  mvi e,255
  call 5
  ora a

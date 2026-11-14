@@ -57,7 +57,7 @@ COUT: push b
 POUT: jmp IOS
 ;
 ''')
-    return '; Explicit console-only FIG-Forth port; see ports/figforth.py\n'+text
+    return '; Explicit console-only FIG-Forth port; see tests/figforth.py\n'+text
 
 
 if __name__ == '__main__':

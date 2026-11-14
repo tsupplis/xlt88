@@ -12,12 +12,15 @@ typedef struct m80_symbol {
 	char name[256];
 	long value;
 	int known, mutable;
+	char version[32];
 } m80_symbol_t;
 typedef struct conditional {
 	int parent, test, otherwise;
 } conditional_t;
 typedef struct m80_context {
 	source_program_t *output;
+	int (*raw_read)(FILE *, source_program_t *);
+	int symbolic_set;
 	macro_t *macros;
 	unsigned macro_depth, exit_depth, radix;
 	size_t expansions;
@@ -81,9 +84,12 @@ evaluate(void *context, const char *text, long *value)
 	if (strlen(text) >= sizeof(normalized)) return 0;
 	strcpy(normalized, text);
 	macro_join(normalized);
+	if (((m80_context_t *)context)->symbolic_set && !mac_literals(normalized)) return 0;
 	if (mexpr_text(normalized, ((m80_context_t *)context)->radix)) return 0;
+	if (((m80_context_t *)context)->symbolic_set && !mac_expression(normalized)) return 0;
 	tree = expr_parse(normalized, NULL, NULL, 0, &error);
 	int result = expr_eval(tree, lookup, context, -1, value);
+	if (result && ((m80_context_t *)context)->symbolic_set) *value = (long)((unsigned long)*value & 65535UL);
 	expr_destroy(tree);
 	return result;
 }
@@ -133,6 +139,7 @@ freeze_text(m80_context_t *ctx, char text[256])
 	const char *p = text;
 	size_t used = 0;
 	int quote = 0;
+	if (ctx->symbolic_set && !mac_literals(text)) return 0;
 	if (mexpr_text(text, ctx->radix)) return 0;
 	while (*p) {
 		char token[256], number[32];
@@ -151,7 +158,7 @@ freeze_text(m80_context_t *ctx, char text[256])
 			item = find(ctx, token);
 			if (item && item->mutable) {
 				snprintf(number, sizeof(number), ctx->radix == 10 ? "%ld" : "%ldD", item->value);
-				replacement = number;
+				replacement = ctx->symbolic_set ? item->version : number;
 			}
 		}
 		output = replacement == p ? length : strlen(replacement);
@@ -160,7 +167,39 @@ freeze_text(m80_context_t *ctx, char text[256])
 	}
 	result[used] = 0;
 	strcpy(text, result);
-	return 1;
+	return !ctx->symbolic_set || mac_expression(text);
+}
+
+/* MAC SET versions preserve forward expressions and the binding visible at
+ * each use. Conditions still require a value known at preprocessing time. */
+static const char *
+set_symbolic(m80_context_t *ctx, statement_t *stmt)
+{
+	const char *error;
+	expr_t *name = expr_parse(stmt->label, NULL, NULL, 0, &error);
+	int valid = name && name->kind == expr_symbol;
+	long value = 0;
+	int known = evaluate(ctx, stmt->first, &value);
+	m80_symbol_t *item = find(ctx, stmt->label);
+	char expression[256];
+	expr_destroy(name);
+	if (!valid || stmt->second[0]) return "SET requires a symbol and one expression";
+	if (item && !item->mutable) return "SET cannot redefine an EQU or address label";
+	strcpy(expression, stmt->first);
+	if (!freeze_text(ctx, expression)) return "invalid MAC SET expression";
+	if (strlen(expression) > 240) return "MAC SET expression exceeds size limit";
+	if (!item) {
+		if (!define(ctx, stmt)) return "out of memory defining SET symbol";
+		item = find(ctx, stmt->label);
+	}
+	item->known = known;
+	item->mutable = 1;
+	item->value = (long)((unsigned long)value & 65535UL);
+	snprintf(item->version, sizeof(item->version), "__mac_set_%lu", ++ctx->serial);
+	strcpy(stmt->label, item->version);
+	strcpy(stmt->opcode, "equ");
+	snprintf(stmt->first, sizeof(stmt->first), "(%s) and 65535", expression);
+	return define(ctx, stmt) ? NULL : "out of memory defining MAC SET version";
 }
 
 static int
@@ -175,7 +214,18 @@ freeze_statement(m80_context_t *ctx, statement_t *stmt)
 		return freeze_text(ctx, stmt->second);
 	for (i = 0; i < sizeof(registers)/sizeof(registers[0]); ++i)
 		if (!strcmp(stmt->opcode, registers[i])) return 1;
-	return freeze_text(ctx, stmt->first) && freeze_text(ctx, stmt->second);
+	if (!freeze_text(ctx, stmt->first) || !freeze_text(ctx, stmt->second)) return 0;
+	if (ctx->symbolic_set && !strcmp(stmt->opcode, "equ")) {
+		long value;
+		char expression[256];
+		if (evaluate(ctx, stmt->first, &value)) snprintf(stmt->first, sizeof(stmt->first), "%ld", value);
+		else {
+			if (strlen(stmt->first) > 240) return 0;
+			strcpy(expression, stmt->first);
+			snprintf(stmt->first, sizeof(stmt->first), "(%s) and 65535", expression);
+		}
+	}
+	return 1;
 }
 
 static int
@@ -304,6 +354,12 @@ process_records(m80_context_t *ctx, const source_program_t *raw, const char *pat
 			if (*token != ':') parsed.problem = m80_statement(parsed.text, &parsed.statement, 1);
 		}
 		macro_join(parsed.statement.opcode);
+		if (ctx->symbolic_set && !parsed.problem) {
+			char *fields[] = { parsed.statement.label, parsed.statement.opcode,
+			    parsed.statement.first, parsed.statement.second };
+			for (size_t field = 0; field < 4 && !parsed.problem; ++field)
+				parsed.problem = mac_names(fields[field], 1);
+		}
 		record = &parsed;
 		stmt = &record->statement;
 		const char *op = stmt->opcode;
@@ -397,8 +453,9 @@ process_records(m80_context_t *ctx, const source_program_t *raw, const char *pat
 			continue;
 		}
 		if (!strcmp(op, "set")) {
-			const char *error = record->problem ? record->problem : set_value(ctx, stmt);
-			append(ctx, record, origin, error, !error);
+			const char *error = record->problem ? record->problem :
+			    ctx->symbolic_set ? set_symbolic(ctx, &parsed.statement) : set_value(ctx, stmt);
+			append(ctx, record, origin, error, !error && !ctx->symbolic_set);
 			continue;
 		}
 		if (stmt->label[0]) {
@@ -479,7 +536,7 @@ process(m80_context_t *ctx, FILE *input, const char *path, unsigned depth)
 	source_record_t location = { .line = 1, .origin_line = 1 };
 	size_t i;
 	if (!remember(ctx, path)) { ctx->oom = 1; return 0; }
-	if (fstat(fileno(input), &ctx->stack[depth]) < 0 || !m80_raw_read(input, &raw)) {
+	if (fstat(fileno(input), &ctx->stack[depth]) < 0 || !ctx->raw_read(input, &raw)) {
 		append(ctx, &location, path, "cannot read M80 source", 0);
 		source_destroy(&raw); return 0;
 	}
@@ -500,11 +557,18 @@ process(m80_context_t *ctx, FILE *input, const char *path, unsigned depth)
 }
 
 int
-m80_read_file(FILE *input, const char *path, source_program_t *program)
+macro_read_file(FILE *input, const char *path, source_program_t *program,
+    int (*raw_read)(FILE *, source_program_t *), int symbolic_set)
 {
-	m80_context_t ctx = { .output = program, .radix = 10 };
+	m80_context_t ctx = { .output = program, .radix = 10, .raw_read = raw_read, .symbolic_set = symbolic_set };
 	process(&ctx, input, path, 0);
 	free(ctx.symbols);
 	macro_destroy(ctx.macros);
 	return !ctx.oom; /* Syntax failures are retained as diagnostic records. */
+}
+
+int
+m80_read_file(FILE *input, const char *path, source_program_t *program)
+{
+	return macro_read_file(input, path, program, m80_raw_read, 0);
 }
