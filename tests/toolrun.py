@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Shared assembly, packaging and execution for emitter regression tests."""
 import os
+import pty
+import select
+import time
+import tty
 import re
 from pathlib import Path
 import subprocess
@@ -56,6 +60,40 @@ def runner(work, target):
             command([os.environ.get('NASM','nasm'),'-Werror','-f','bin',name+'.asm','-o',name+'.com'])
             if target == 'cpm86':
                 command([os.environ.get('BIN2CMD','bin2cmd'),name+'.com',name+'.cmd'])
-    def execute(name, *args, input=None):
+    def execute(name, *args, input=None, console=False):
+        if console:
+            pid, fd = pty.fork()
+            if pid == 0:
+                os.chdir(work)
+                tty.setraw(0)
+                os.execvpe(emu, [emu,name+('.cmd' if target == 'cpm86' else '.com'),*args],env)
+            output = bytearray()
+            deadline = time.monotonic() + 60
+            sent = False
+            try:
+                while time.monotonic() < deadline:
+                    # Wait for the child to configure its terminal before sending.
+                    if not sent and time.monotonic() > deadline - 59.8:
+                        if input:
+                            os.write(fd,input)
+                        sent = True
+                    if select.select([fd],[],[],0.02)[0]:
+                        try:
+                            chunk = os.read(fd,65536)
+                        except OSError:
+                            break
+                        if not chunk:
+                            break
+                        output.extend(chunk)
+                else:
+                    raise AssertionError(('console timeout',bytes(output)))
+            finally:
+                os.close(fd)
+                done, status = os.waitpid(pid,os.WNOHANG)
+                if not done:
+                    os.kill(pid,9)
+                    _,status = os.waitpid(pid,0)
+            assert os.waitstatus_to_exitcode(status) == 0, bytes(output)
+            return bytes(output)
         return command([emu,name+('.cmd' if target == 'cpm86' else '.com'),*args], execution=True, input=input)
     return command, build, execute

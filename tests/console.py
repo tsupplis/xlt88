@@ -3,9 +3,11 @@ from pathlib import Path
 import tempfile
 from toolrun import runner
 
-source = ''' mvi c,6
+source = '''wait: mvi c,6
  mvi e,255
  call 5
+ ora a
+ jz wait
  cpi 81
  jnz failed
  mov a,l
@@ -36,7 +38,7 @@ with tempfile.TemporaryDirectory() as directory:
         _, build, execute = runner(work,target)
         for flavor in ('nasm','asm86','masm3','drasm86'):
             build('direct',source,flavor)
-            output = execute('direct',input=b'Q')
+            output = execute('direct',input=b'Q',console=True)
             assert b'A\xfeDIRECT OK' in output, (target,flavor,output)
             build('location',location,flavor)
             if target == 'cpm86':

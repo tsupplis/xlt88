@@ -12,3 +12,4 @@ out.asm
 
 /tests/readers
 /tests/__pycache__/
+/ports/__pycache__/
