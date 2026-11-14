@@ -1,6 +1,6 @@
 # xlt88
 
-xlt88 translates Intel 8080 assembly source to NASM assembly for the 8086
+xlt88 translates Intel 8080 assembly source to NASM, ASM86 or MASM 3 assembly for the 8086
 or 8088. Its OS targets are IBM PC DOS 1.0 and CP/M-86 1.1.
 
 See [implementation progress](progress.md) for milestones, current measurements,
@@ -168,9 +168,11 @@ expansion; final statement names are joined before entering the shared IR.
 Within strings, `&parameter` inserts its actual text. Argument `!` protects the
 next character, including commas, semicolons and spaces. Leading `%expression`
 in a macro argument or IRP item evaluates a previously known absolute value
-at the call/iteration setup and supplies decimal text for its low 16 bits.
-An angle-grouped or escaped percent sign remains literal. `.RADIX` is not yet
-supported, so decimal is the only output radix for this operator.
+at the call/iteration setup and supplies text in the active radix for its low
+16 bits. A leading zero is supplied when the first digit is alphabetic.
+An angle-grouped or escaped percent sign remains literal. Generated results
+ending in B/D that conflict with the reader's explicit-suffix grammar are
+rejected; use a literal argument in those cases.
 
 `IFB`/`IFNB` test an angle-delimited argument for zero/nonzero text length.
 `IFIDN`/`IFDIF` compare two angle-delimited arguments exactly, including case,
@@ -192,8 +194,22 @@ precedence. Comparisons return 65535 or zero; NOT complements the low 16 bits.
 General arithmetic retains the shared checked host-integer contract rather
 than emulating every M80 16-bit overflow rule.
 
-Nested macro definitions, pass conditionals (`IF1`/`IF2`), `NUL`, relocatable
-modules and Z80 mode remain unsupported. This is a flat
+`.RADIX expression` sets the source base from 2 through 16 (default 10).
+The directive itself always evaluates its expression in decimal. Active changes
+persist through includes and macro expansion. Unsuffixed numeric expression
+operands are converted to explicit decimal literals before layout/lowering;
+registers, strings and unexpanded macro text are preserved. B/D/H/O/Q suffixes
+and the existing 0x extension override the active base. Historical M80 versions
+have ambiguous B/D handling at high radices; this reader consistently gives
+explicit suffixes priority rather than reproducing those version differences.
+
+`NUL` tests the remaining expression text: no text after whitespace yields
+65535; any remaining text yields zero. It does not resolve that text as a
+symbol or expression. It consumes the remainder, so use IFB/IFNB when testing
+an angle-delimited macro argument.
+
+Nested macro definitions, pass conditionals (`IF1`/`IF2`), relocatable modules
+and Z80 mode remain unsupported. This is a flat
 8080 source subset, not complete MACRO-80 compatibility; expression grammar
 and symbol identity still follow xlt88's current contracts.
 
@@ -209,6 +225,7 @@ The driver in `xlt88.c` selects dependencies and owns streams. The pipeline is:
 - `dialect.c`: Intel/M80 lexical parsing into an owned `source_program_t`.
 - `m80.c`: M80 preprocessing order, conditional assembly and includes.
 - `macro.c`: owned macro definitions, argument substitution and local labels.
+- `mexpr.c`: M80 radix literals, NUL normalization and percent formatting.
 - `norm8080.c`: optional 8080 source serialization (`--emit=8080`).
 - `osrecog.c`: conservative tracking of the BDOS function argument.
 - `symbols.c` and `state.c`: shared symbols and editable state.
@@ -217,7 +234,7 @@ The driver in `xlt88.c` selects dependencies and owns streams. The pipeline is:
 - `trans.c`: CPU lowering with the injected `backend_t`.
 - `msdos.c` and `cpm86.c`: native OS sequences.
 - `target.c`: an owned `target_program_t`, independent of source lifetime.
-- `nasm.c`: assembler formatting through an injected `emitter_t`.
+- `nasm.c`, `asm86.c`, `masm.c` (with shared `asmfmt.c`): assembler formatting through an injected `emitter_t`.
 
 `lower_8080` borrows the source and returns a separately owned target program.
 The caller can lower the same source for both OS targets, destroy the source,
@@ -228,10 +245,11 @@ See [design.md](design.md) for the full architecture and remaining migration
 work. Editable symbol-state files, typed expression trees, and conservative
 source layout are available. Source instructions still use textual operand fields.
 Intel ASM and a limited M80 8080 reader are implemented. MAC/RMAC and COM
-readers are planned. NASM is implemented;
-MASM 3, ASM86 and DRASM86 emitters remain planned.
+readers are planned. NASM, ASM86 and MASM 3 are implemented;
+DRASM86 remains planned.
 
-Run `make test` with NASM, emu2, bin2cmd, and Python 3 on PATH. The script accepts
+Run `make test` with NASM, emu2, bin2cmd, cpm86_asm86, cpm86_gencmd,
+pcdev_masm3, pcdev_link2, pcdev_exe2bin, and Python 3 on PATH. The script accepts
 `EMU2` and `BIN2CMD` overrides. It checks both Hello World binaries,
 the generated native calls, diagnostics, exact packed and aligned data,
 the 8080 auxiliary carry produced by ANA and ANI through PSW and DAA,
@@ -300,3 +318,68 @@ automatic CP/M FCB translation.
 CP/M-86 search and random I/O run in tests/randio.py. BDOS 40 is emission-tested
 only because the installed emulator lacks that service; use CPM_ZFILL=1 with
 a supporting emulator to run its zero-fill execution test.
+
+## ASM86 output
+
+`--emit=asm86` selects DRI assembler syntax from the same owned target program:
+
+```sh
+./xlt88 --target=cpm86 --emit=asm86 examples/hello.asm hello.a86
+cpm86_asm86 hello.a86
+cpm86_gencmd hello 8080
+emu2 hello.cmd
+```
+
+Validation uses ASM86 1.1N2 and GENCMD's combined 8080 memory model,
+with origin 100h. The emitter writes CSEG, separate labels, RB reserves,
+and dot-address memory operands. GENCMD supplies the reserved storage in
+this tested workflow. Conditional jumps expand to an inverse short jump
+and an unconditional jump, so output sizes can differ from NASM.
+Source names are annotated in comments; assembler names are normalized and
+collision-checked because ASM86 ignores underscores. Forward equates are
+ordered after their dependencies, with location anchors preserving `$`.
+Constant expressions outside -32768 through 65535 and numeric branch targets
+without a symbolic destination are rejected without replacing the output.
+Unresolved expressions still follow the assembler's 16-bit arithmetic;
+full equivalence for arbitrary symbolic overflow is not established.
+
+`tests/emitters.py` rejects assembler errors and ignored-syntax warnings, then
+compares executed CPU, console, memory, alignment and CP/M FCB copy fixtures
+with NASM output. It accepts `XLT88`, `ASM86`, `GENCMD`, and `EMU2` overrides.
+Both ASM86 and MASM 3 execution validation cover CP/M-86 and DOS 1.0.
+For ASM86 DOS validation, the test converts the GENCMD combined image into
+a COM file after checking its single-group header and discarding the
+128-byte CMD header and 100h base-page prefix. It retains zero-filled
+reserved storage; running the DOS-lowered CMD directly would use the wrong OS.
+
+## MASM 3 output
+
+```sh
+./xlt88 --target=msdos --emit=masm3 examples/hello.asm hello.asm
+pcdev_masm3 'hello.asm,hello.obj;'
+pcdev_link2 'hello.obj,hello.exe;'
+pcdev_exe2bin hello.exe hello.com
+emu2 hello.com
+```
+
+The tested toolchain is Microsoft MACRO Assembler 3.00 and LINK 2.40.
+Build tools run under DOS 3.3 in the test harness; generated DOS programs
+run with `EMU2_DOSVER=1.0`. The linker's `no STACK segment` warning is
+expected for this COM layout; tests permit only that linker warning and
+require zero assembler warnings/errors. LINK may return status 1 for it.
+For `--target=cpm86`, package the resulting flat COM with
+`bin2cmd hello.com hello.cmd` and execute the CMD.
+
+MASM output uses CRLF lines, a single segment at origin 100h, explicit
+near jumps and typed direct-memory operands. Reserves use zero-filled DUP;
+conditional assembly suppresses zero-count DUP, including already aligned
+locations. The shared legacy formatting module owns aliases, deferred
+equates and branch expansion. It never modifies the target program.
+
+`make test` runs the emitter comparison matrix for ASM86/MASM 3 and both OS
+targets. `XLT_EMIT=masm3 XLT_TARGET=msdos python3 tests/emitters.py` selects
+one combination. Additional tool overrides are `MASM3`, `LINK2`, `EXE2BIN`.
+The checks cover the full CPU diagnostic, opcode assembly, flags, forward
+symbols, name collisions, direct memory, zero reserves, alignment and copies
+of 0, 1, 129 and 260 records. This is fixture coverage, not proof of every
+assembler expression or full OS service coverage.

@@ -43,7 +43,7 @@ known_operation(const char *word)
 	    "mov hlt add adc sub sbb ana xra ora cmp rnz pop jnz jmp cnz push adi rst rz ret jz cz call aci "
 	    "rnc jnc cnc sui rc jc cc sbi rpo jpo cpo ani rpe pchl jpe cpe xri rp jp cp ori rm sphl jm cm cpi "
 	    "lda sta lhld shld xthl xchg in out di ei org equ db dw ds align end "
-	    "title subttl page .8080 .z80 .list .xlist macro endm rept irp irpc exitm local "
+	    "title subttl page .radix .8080 .z80 .list .xlist macro endm rept irp irpc exitm local "
 	    "if ift iff ife if1 if2 ifdef ifndef ifb ifnb ifidn ifdif else endif include .include "
 	    "aseg cseg dseg common public extrn entry name set .phase .dephase", word);
 }
@@ -150,7 +150,7 @@ parse_statement(const char *line, statement_t *stmt, int m80)
 	if (comma != NULL && strcmp(stmt->opcode, "db") &&
 	    strcmp(stmt->opcode, "dw") &&
 	    (!m80 || (known_operation(stmt->opcode) &&
-	    !in_list("macro local ifb ifnb ifidn ifdif", stmt->opcode)))) {
+	    !in_list("macro local if ift ife iff ifb ifnb ifidn ifdif", stmt->opcode)))) {
 		copy_token(stmt->first, start, comma++);
 		while (space(*comma))
 			++comma;

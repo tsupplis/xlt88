@@ -23,6 +23,8 @@
 #include <unistd.h>
 
 #include "trans.h"
+#include "asm86.h"
+#include "masm.h"
 #include "target.h"
 
 /* Reject aliases before creating staging files. State input and output may
@@ -99,6 +101,7 @@ main(int argc, char *argv[])
 	char *assembly_temp = NULL, *state_temp = NULL;
 	FILE *fp = NULL, *out = NULL, *state = NULL;
 	int arg = 1, normalized = 0, result = 1;
+	int (*render)(const target_program_t *, FILE *, FILE *) = NULL;
 
 	while (arg < argc && argv[arg][0] == '-') {
 		if (!strcmp(argv[arg], "--target=msdos")) target = &msdos_backend;
@@ -106,7 +109,9 @@ main(int argc, char *argv[])
 		else if (!strcmp(argv[arg], "--dialect=intel")) dialect = &intel_dialect;
 		else if (!strcmp(argv[arg], "--dialect=m80")) dialect = &m80_dialect;
 		else if (!strcmp(argv[arg], "--emit=8080")) normalized = 1;
-		else if (!strcmp(argv[arg], "--emit=nasm")) normalized = 0;
+		else if (!strcmp(argv[arg], "--emit=nasm")) { normalized = 0; render = NULL; }
+		else if (!strcmp(argv[arg], "--emit=masm3")) { normalized = 0; render = masm_render; }
+		else if (!strcmp(argv[arg], "--emit=asm86")) { normalized = 0; render = asm86_render; }
 		else if (!strncmp(argv[arg], "--state-in=", 11) && argv[arg][11]) state_in = argv[arg] + 11;
 		else if (!strncmp(argv[arg], "--state-out=", 12) && argv[arg][12]) state_out = argv[arg] + 12;
 		else if (!strcmp(argv[arg], "--")) { ++arg; break; }
@@ -152,6 +157,8 @@ main(int argc, char *argv[])
 	emitter.context = out;
 	if (normalized) {
 		if (!emit_named_8080(&program, &symbols, out, stderr)) goto cleanup;
+	} else if (render) {
+		if (!render(&target_program, out, stderr)) goto cleanup;
 	} else if (!target_write(&target_program, &emitter)) goto cleanup;
 	if (fclose(out)) { out = NULL; perror(output); goto cleanup; }
 	out = NULL;
@@ -177,7 +184,7 @@ cleanup:
 	return result;
 usage:
 	fputs("usage: xlt88 [--target=msdos|cpm86] [--dialect=intel|m80]"
-	    " [--emit=nasm|8080] [--state-in=names.sym] [--state-out=names.sym]"
+	    " [--emit=nasm|asm86|masm3|8080] [--state-in=names.sym] [--state-out=names.sym]"
 	    " infile.asm outfile.asm\n", stderr);
 	return 1;
 }

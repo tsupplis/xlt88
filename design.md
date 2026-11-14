@@ -9,12 +9,12 @@ contracts. They are proposals to implement incrementally.
 
 The current implementation has an Intel source reader in `dialect.c`,
 translation in `trans.c`, OS backends in `msdos.c` and `cpm86.c`,
-and NASM formatting in `nasm.c`. The CLI selects these implementations.
+and assembler formatting in `nasm.c`, `asm86.c` and `masm.c` (shared `asmfmt.c`). The CLI selects these implementations.
 The current CLI uses an owned source program, a separate conservative
 BDOS argument-recognition pass, CPU/OS lowering into an owned target program,
-and NASM rendering after lowering completes. `--emit=8080` serializes the
+and NASM, ASM86 or MASM 3 rendering after lowering completes. `--emit=8080` serializes the
 parsed source independently of CPU/OS lowering. Target expressions are owned trees containing copied symbol spellings and
-stable source-scoped IDs. Both expression emitters use the same parser; NASM
+stable source-scoped IDs. The expression emitters share parsed expression trees; NASM
 renders explicit parentheses to retain grouping. EQU definitions own bound
 expression trees and the source layout pass computes addresses where sizes are
 known. Numeric transfers bind to unique source labels at the same offset.
@@ -477,9 +477,9 @@ are reported only when active, so discarded code cannot defeat an early exit.
 macro_actuals scans argument groups and escapes before splitting at commas.
 A macro_eval_t callback, injected by the M80 coordinator, resolves leading
 percent expressions against previously encountered absolute symbols. The macro
-module does not own the symbol environment. Decimal low-16-bit formatting is
-explicit; changing .RADIX is outside the current reader contract. Quoted/grouped
-literal arguments do not trigger percent evaluation.
+module does not own the symbol environment. The coordinator passes the current
+radix explicitly for low-16-bit percent formatting. Quoted/grouped literal
+arguments do not trigger percent evaluation.
 
 Ampersands remain in expanded source text so nested expansion can still find
 parameter boundaries. Quoted &parameter consumes the prefix when substituted.
@@ -500,7 +500,72 @@ keeps mutable names out of the editable label/equate table; full source-order
 provenance remains on the emitted records. Forward or layout-dependent SET
 assignments are diagnosed rather than deferred.
 
-Nested macro definitions, pass conditions, NUL, .RADIX and relocatable
-modules remain unsupported. Expression grammar and symbol identity retain the shared IR
+The M80 context owns radix state (initially decimal). mexpr_text normalizes
+numeric literals and textual NUL before shared expression parsing or statement
+emission. Nondecimal default literals gain explicit decimal suffixes, so EQU
+layout, target emission, normalized source and state import never depend on a
+later .RADIX directive. Mutable SET substitutions likewise carry explicit
+suffixes when required. .RADIX expressions use decimal temporarily, then update
+the active context only after successful validation. Includes and macro bodies
+change that same context in execution order.
+
+mexpr_number formats percent results in the active base with a leading digit.
+The established explicit B/D suffix rule wins over default radix; percent
+results ambiguous under that rule are rejected rather than silently reinterpreted.
+Historical version-specific suffix rules and general per-operation M80 overflow
+semantics still require a separate arithmetic contract and reference fixtures.
+NUL consumes the rest of its expression without looking up or evaluating it.
+These operations stay in the reader; the shared expression evaluator remains
+checked host-long arithmetic.
+
+Nested macro definitions, pass conditions and relocatable modules remain
+unsupported. Expression grammar and symbol identity retain the shared IR
 contracts rather than claiming complete M80 compatibility. The M80 reference is:
 https://www.s100computers.com/Software%20Folder/Assembler%20Collection/Microsoft%20M80%20Manual.pdf
+
+## Implemented ASM86 renderer
+
+`asm86_render(const target_program_t *, FILE *, FILE *)` returns nonzero
+on success. It borrows the immutable owned target and output/diagnostic
+streams. A render-local context owns assembler aliases, deferred EQU ordering,
+and branch/address counters; it is released before returning. The driver
+publishes its temporary output only on success. The renderer uses
+`target_write` with an injected callback, like NASM, with setup and footer
+work around replay. Source records and symbol tables may already be destroyed.
+
+ASM86-specific encoding expands conditional jumps, maps identifiers, emits
+address equates for dot-memory syntax, and captures location anchors for
+deferred expressions. These are assembler representation choices; CPU and
+OS lowering and the semantic target events are shared. The requirement that
+emitter selection preserve target instructions means preserving these events
+and their behavior, not identical encoded instruction counts or addresses.
+
+The initial validation contract is DRI ASM86 1.1N2 plus GENCMD in combined
+8080 model for CP/M-86. Regression requires zero assembler diagnostics and
+executed equivalence with NASM for the CPU diagnostic, console/flags,
+data/alignment/memory and native FCB copies. It does not assert byte identity
+or full symbolic-overflow equivalence. DRASM86 remains planned.
+
+## MASM 3 and the shared legacy formatter
+
+`masm_render(const target_program_t *, FILE *, FILE *)` has the same
+borrowed-input, nonzero-success contract as `asm86_render`. The driver
+injects the selected render function. Both delegate to `asmfmt_render`;
+its per-render context contains the dialect choice, aliases, expression
+anchors and jump counters. The MASM adapter stages text and converts LF to
+CRLF, propagating read/write failures. Neither adapter owns or mutates the
+input target or changes CPU/OS lowering.
+
+MASM requires explicit immediate/address and direct-memory typing for forward
+references, and explicit near jumps to prevent pass-dependent sizing. Its
+flat offset expressions use label differences from the entry anchor. ASM86
+retains OFFSET and dot-address notation. MASM reserves use DUP with a
+conditional guard for zero counts; ASM86 uses RB. Assembler aliases and
+semantic branch expansion remain shared.
+
+Validation now crosses both renderers with both OS targets. MASM 3.00,
+LINK 2.40 and EXE2BIN produce a COM image; CP/M targets wrap it with bin2cmd.
+ASM86 1.1N2 and GENCMD produce a combined CMD; DOS tests validate the single
+code-group header and extract the image above 100h into a COM. Build tools
+use DOS 3.3, while DOS execution tests report version 1.0. The only accepted
+linker warning is the missing STACK segment expected for COM files.

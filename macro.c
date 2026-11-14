@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "macro.h"
+#include "mexpr.h"
 #include "symbols.h"
 
 static int
@@ -58,7 +59,7 @@ macro_find(macro_t *macros, const char *name)
  * angle pair is removed. Missing actual parameters are empty text. */
 const char *
 macro_actuals(const char *text, char values[32][256], size_t *count,
-    macro_eval_t evaluate, void *context)
+    macro_eval_t evaluate, void *context, unsigned radix)
 {
 	const char *p = text;
 	*count = 0;
@@ -99,8 +100,12 @@ macro_actuals(const char *text, char values[32][256], size_t *count,
 		if (numeric) {
 			long number;
 			if (!evaluate(context, value, &number)) return "% requires a previously defined absolute value";
-			/* The reader currently has the default decimal radix only. */
-			snprintf(value, sizeof(value), "%lu", (unsigned long)number & 65535UL);
+			mexpr_number(value, (unsigned long)number, radix);
+			/* Our shared numeric grammar gives explicit B/D suffixes priority.
+			 * Do not silently turn generated hex 1B into binary 1. */
+			if ((radix > 11 && value[strlen(value) - 1] == 'B') ||
+			    (radix > 13 && value[strlen(value) - 1] == 'D'))
+				return "% result is ambiguous with a B/D suffix; use an explicit literal argument";
 		}
 		strcpy(values[(*count)++], value);
 		if (!*p) return NULL;
@@ -111,7 +116,7 @@ macro_actuals(const char *text, char values[32][256], size_t *count,
 const char *
 macro_arguments(const char *text, char values[32][256], size_t *count)
 {
-	return macro_actuals(text, values, count, NULL, NULL);
+	return macro_actuals(text, values, count, NULL, NULL, 10);
 }
 
 /* Strip one required angle group, preserving its interior exactly. */
@@ -372,14 +377,14 @@ macro_block(macro_t **block, const source_program_t *raw, size_t first, size_t l
 }
 
 const char *
-macro_expand(const macro_t *macro, const statement_t *call, macro_eval_t evaluate, void *context, unsigned long *serial, source_program_t *out)
+macro_expand(const macro_t *macro, const statement_t *call, macro_eval_t evaluate, void *context, unsigned radix, unsigned long *serial, source_program_t *out)
 {
 	char actual[32][256] = {{0}};
 	size_t count;
 	char text[514];
 	const char *error;
 	snprintf(text, sizeof(text), "%s%s%s", call->first, call->second[0] ? "," : "", call->second);
-	error = macro_actuals(text, actual, &count, evaluate, context);
+	error = macro_actuals(text, actual, &count, evaluate, context, radix);
 	if (error) return error;
 	if (count > macro->parameter_count) return "too many macro arguments";
 	return expand_values(macro, actual, serial, out);

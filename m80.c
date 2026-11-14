@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include "symbols.h"
 #include "macro.h"
+#include "mexpr.h"
 
 typedef struct m80_symbol {
 	char name[256];
@@ -18,7 +19,7 @@ typedef struct conditional {
 typedef struct m80_context {
 	source_program_t *output;
 	macro_t *macros;
-	unsigned macro_depth, exit_depth;
+	unsigned macro_depth, exit_depth, radix;
 	size_t expansions;
 	unsigned long serial;
 	m80_symbol_t *symbols;
@@ -80,6 +81,7 @@ evaluate(void *context, const char *text, long *value)
 	if (strlen(text) >= sizeof(normalized)) return 0;
 	strcpy(normalized, text);
 	macro_join(normalized);
+	if (mexpr_text(normalized, ((m80_context_t *)context)->radix)) return 0;
 	tree = expr_parse(normalized, NULL, NULL, 0, &error);
 	int result = expr_eval(tree, lookup, context, -1, value);
 	expr_destroy(tree);
@@ -131,6 +133,7 @@ freeze_text(m80_context_t *ctx, char text[256])
 	const char *p = text;
 	size_t used = 0;
 	int quote = 0;
+	if (mexpr_text(text, ctx->radix)) return 0;
 	while (*p) {
 		char token[256], number[32];
 		const char *replacement = p;
@@ -147,7 +150,7 @@ freeze_text(m80_context_t *ctx, char text[256])
 			token[length] = 0;
 			item = find(ctx, token);
 			if (item && item->mutable) {
-				snprintf(number, sizeof(number), "%ld", item->value);
+				snprintf(number, sizeof(number), ctx->radix == 10 ? "%ld" : "%ldD", item->value);
 				replacement = number;
 			}
 		}
@@ -225,7 +228,7 @@ expand_run(m80_context_t *ctx, const macro_t *macro, const source_record_t *reco
 	if (ctx->macro_depth >= 32) error = "macro nesting exceeds 32";
 	else if (ctx->expansions++ >= 65536) error = "macro/repetition expansion budget exceeded";
 	if (!error) error = value ? macro_iteration(macro, value, &ctx->serial, &expanded) :
-	    macro_expand(macro, &record->statement, evaluate, ctx, &ctx->serial, &expanded);
+	    macro_expand(macro, &record->statement, evaluate, ctx, ctx->radix, &ctx->serial, &expanded);
 	if (error) append(ctx, record, path, error, 0);
 	else {
 		++ctx->macro_depth;
@@ -265,7 +268,7 @@ repeat_run(m80_context_t *ctx, const source_program_t *raw, size_t first, size_t
 	} else if (!error) {
 		if (length >= 2 && stmt->second[0] == '<' && stmt->second[length - 1] == '>') {
 			memcpy(text, stmt->second + 1, length - 2); text[length - 2] = 0;
-			error = macro_actuals(text, values, &count, evaluate, ctx);
+			error = macro_actuals(text, values, &count, evaluate, ctx, ctx->radix);
 			if (!count) count = 1; /* Empty IRP expands once with empty text. */
 		} else error = "IRP requires an angle-bracketed list";
 	}
@@ -382,6 +385,17 @@ process_records(m80_context_t *ctx, const source_program_t *raw, const char *pat
 			continue;
 		}
 		if (!active) continue;
+		if (!strcmp(op, ".radix")) {
+			long radix;
+			unsigned previous = ctx->radix;
+			int valid;
+			ctx->radix = 10; /* The directive's expression always uses decimal. */
+			valid = !record->problem && !stmt->label[0] && !stmt->second[0] &&
+			    evaluate(ctx, stmt->first, &radix) && radix >= 2 && radix <= 16;
+			ctx->radix = valid ? (unsigned)radix : previous;
+			append(ctx, record, origin, valid ? NULL : ".RADIX requires a known decimal expression from 2 to 16", valid);
+			continue;
+		}
 		if (!strcmp(op, "set")) {
 			const char *error = record->problem ? record->problem : set_value(ctx, stmt);
 			append(ctx, record, origin, error, !error);
@@ -449,7 +463,7 @@ process_records(m80_context_t *ctx, const source_program_t *raw, const char *pat
 		macro_join(parsed.statement.first);
 		macro_join(parsed.statement.second);
 		if (!freeze_statement(ctx, &parsed.statement)) {
-			append(ctx, record, origin, "SET substitution exceeds operand size limit", 0); break;
+			append(ctx, record, origin, "invalid numeric literal or normalized operand exceeds size limit", 0); break;
 		}
 		if (!define(ctx, stmt)) break;
 		append(ctx, record, origin, NULL, 0);
@@ -488,7 +502,7 @@ process(m80_context_t *ctx, FILE *input, const char *path, unsigned depth)
 int
 m80_read_file(FILE *input, const char *path, source_program_t *program)
 {
-	m80_context_t ctx = { .output = program };
+	m80_context_t ctx = { .output = program, .radix = 10 };
 	process(&ctx, input, path, 0);
 	free(ctx.symbols);
 	macro_destroy(ctx.macros);
