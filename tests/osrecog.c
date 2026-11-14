@@ -11,6 +11,7 @@ resolve(void *context, const char *text)
 {
 	char *end;
 	long value;
+	if (!strcmp(text, "selector")) return 512;
 	if (!strcmp(text, "print_service"))
 		return *(const long *)context;
 	value = strtol(text, &end, 10);
@@ -48,5 +49,33 @@ main(void)
 	assert(sets[6].count == 0); /* An unknown caller poisons the join. */
 	assert(!memcmp(original, records, sizeof(records)));
 	free(sets);
+	{
+		source_record_t memory[] = {
+			{ .statement = { .opcode = "mvi", .first = "a", .second = "2" } },
+			{ .statement = { .opcode = "sta", .first = "selector" } },
+			{ .statement = { .opcode = "call", .first = "clobber" } },
+			{ .statement = { .opcode = "lda", .first = "selector" } },
+			{ .statement = { .opcode = "mov", .first = "c", .second = "a" } },
+			{ .statement = { .opcode = "call", .first = "5" } },
+			{ .statement = { .opcode = "jmp", .first = "0" } },
+			{ .statement = { .label = "clobber", .opcode = "ret" } },
+			{ .statement = { .label = "selector", .opcode = "ds", .first = "1" } }
+		};
+		source_record_t copy[sizeof(memory) / sizeof(*memory)];
+		source_program_t program = { .records = memory, .count = sizeof(memory) / sizeof(*memory) };
+		long *single = NULL;
+		memcpy(copy, memory, sizeof(memory));
+		assert(recognize_os_sets(&program, resolve, &print_service, &sets));
+		assert(sets[5].count == 1 && sets[5].values[0] == 2 && sets[5].guarded);
+		assert(!memcmp(copy, memory, sizeof(memory)));
+		free(sets);
+		assert(recognize_os_calls(&program, resolve, &print_service, &single));
+		assert(single[5] == -1); /* A guarded singleton is not a proof. */
+		free(single);
+		strcpy(memory[8].statement.first, "2");
+		assert(recognize_os_sets(&program, resolve, &print_service, &sets));
+		assert(!sets[5].count); /* No guessed array/table selector. */
+		free(sets);
+	}
 	return 0;
 }

@@ -17,3 +17,7 @@ out.asm
 /tests/shrink
 
 /tests/osrecog
+
+/tests/flags
+
+/tests/fcbaddr

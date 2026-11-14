@@ -2,6 +2,7 @@
  * to the target builder; assembler syntax and program storage live elsewhere.
  * Service coverage is intentionally limited to the cases listed below. */
 #include "backend.h"
+#include "reset.h"
 
 static void
 exit_program(const emitter_t *out)
@@ -14,10 +15,20 @@ exit_program(const emitter_t *out)
 	instruction(out, "int", value(operand_interrupt, 0xe0), no_operand);
 }
 
+static void
+reset_call(const emitter_t *out, long function)
+{
+	instruction(out, "mov", operand(operand_register, "cl"), value(operand_immediate, function));
+	emit(out, output_line_end, NULL, no_operand, no_operand);
+	instruction(out, "int", value(operand_interrupt, 0xe0), no_operand);
+	emit(out, output_line_end, NULL, no_operand, no_operand);
+}
+
 static int
 bdos(const emitter_t *out, long function, unsigned long site)
 {
 	const char *service;
+	if (function == 13) { reset_disks(out, reset_call, 0, site); return 1; }
 
 	switch (function) {
 	case 1:
@@ -25,6 +36,9 @@ bdos(const emitter_t *out, long function, unsigned long site)
 		break;
 	case 2:
 		service = "console output, character in DL";
+		break;
+	case 3:
+		service = "native reader/auxiliary input";
 		break;
 	case 4:
 		service = "native auxiliary output, character in DL";
@@ -34,6 +48,12 @@ bdos(const emitter_t *out, long function, unsigned long site)
 		break;
 	case 6: 
 		service = "direct console I/O, CP/M 2.2 modes"; 
+		break;
+	case 7:
+		service = "get native BIOS IOBYTE";
+		break;
+	case 8:
+		service = "set native BIOS IOBYTE from DL";
 		break;
 	case 9:
 		service = "print dollar-terminated string at DS:DX";
@@ -77,11 +97,32 @@ bdos(const emitter_t *out, long function, unsigned long site)
 	case 23:
 		service = "rename file, new name at FCB+16";
 		break;
+	case 24:
+		service = "native login vector in BX (source HL)";
+		break;
 	case 25:
 		service = "get current drive";
 		break;
 	case 26:
 		service = "set DMA offset from DX";
+		break;
+	case 27:
+		service = "native allocation vector pointer in ES:BX";
+		break;
+	case 28:
+		service = "write protect the current native drive";
+		break;
+	case 29:
+		service = "native read-only drive vector in BX (source HL)";
+		break;
+	case 30:
+		service = "set native CP/M file attributes from FCB name bits";
+		break;
+	case 31:
+		service = "native disk parameter block pointer in ES:BX";
+		break;
+	case 32:
+		service = "get/set native user area, FF queries current user";
 		break;
 	case 33: 
 		service = "random read, 24-bit record at FCB+33"; 
@@ -95,11 +136,21 @@ bdos(const emitter_t *out, long function, unsigned long site)
 	case 36: 
 		service = "set random record from sequential position"; 
 		break;
+	case 37:
+		service = "reset selected native drives, bitmap in DX";
+		break;
 	case 40: 
 		service = "random write with native zero fill"; 
 		break;
 	default:
 		return 0;
+	}
+	/* The segment is part of these results. Restoring the caller's ES would
+	 * destroy the pointer. Do not infer segment overrides for later uses. */
+	if (function == 27 || function == 31) {
+		instruction(out, "int", value(operand_interrupt, 0xe0), no_operand);
+		emit(out, output_comment, service, no_operand, no_operand);
+		return bdos_far_result;
 	}
 
 	/* CP/M-86 STWFCS/RSTFCB copies the same 33-byte sequential FCB used

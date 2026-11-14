@@ -13,8 +13,8 @@ Translate/assemble counts cover four emitters × two OS targets. Only the two ex
 | pilot.asm | bc015288f546 | intel | pass | 0/8 | 0/8 | not run |
 | tinidisk.asm | b3f1f395ba09 | intel | pass | 0/8 | 0/8 | not run |
 | tst8080.asm | 800a83528f40 | intel | pass | 8/8 | 8/8 | 8/8 |
-| vtl2.asm | 215bff18ad99 | intel | pass | 4/8 | 0/8 | not run |
-| wash15.asm | 76d4229a49fd | m80 | pass | 0/8 | 0/8 | not run |
+| vtl2.asm | 215bff18ad99 | intel | pass | 8/8 | 8/8 | not run |
+| wash15.asm | 76d4229a49fd | m80 | pass | 4/8 | 4/8 | not run |
 
 Excluded existing 8086 references: copy-dos.asm, copycpm.asm, test1.asm, test2.asm.
 
@@ -38,7 +38,7 @@ drasm86/msdos: xlt88: RASM-86 requires a symbolic branch target
 
 ## disk7.mac
 
-The MAC subset now normalizes the unchanged source, including dollar separators, macros, labelled directives and forward SET. Translation remains blocked by dynamic BDOS functions and unsupported native services, including far-pointer consumers. Reference: examples/ref/disk7.a86.
+The MAC subset now normalizes the unchanged source, including dollar separators, macros, labelled directives and forward SET. Translation remains blocked by dynamic BDOS functions and CP/M 3 function 46. Native 27/31 results require explicit segment-aware consumer review. tests/diskref.py separately exercises four reference-only scenarios. Reference: examples/ref/disk7.a86.
 
 Observed blocker samples (at most three diagnostic lines per combination):
 
@@ -49,7 +49,7 @@ nasm/msdos: xlt88: DOS FCB analysis: unrecognized subroutine may expose FCB stor
 ```text
 nasm/cpm86: xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1230: BDOS call needs a statically proven function in C: BDOS
 xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1238: BDOS call needs a statically proven function in C: BDOS
-xlt88:2347: BDOS function 13 needs a native port for cpm86
+xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/disk7.mac:1969: BDOS 31 returns native ES:BX; manual port review required for pointer consumers (segment overrides are not inferred)
 ```
 
 ## forth.asm
@@ -79,7 +79,7 @@ Computed offset transfers and straight-line BDOS C propagation are improved. RST
 Observed blocker samples (at most three diagnostic lines per combination):
 
 ```text
-nasm/msdos: xlt88: DOS FCB analysis: file call needs a proven FCB address in DE
+nasm/msdos: xlt88: DOS FCB analysis: explicit default-FCB metadata access needs field translation
 ```
 
 ```text
@@ -94,44 +94,14 @@ Explicit console/CPU smoke fixture.
 
 ## vtl2.asm
 
-Fixed ORG 0800h keeps variables page-aligned, but translated code outgrows that region. No automatic relocation is assumed. DOS also needs default-FCB proof. Reference: examples/ref/vtl2.a86.
-
-Observed blocker samples (at most three diagnostic lines per combination):
-
-```text
-nasm/msdos: xlt88: DOS FCB analysis: file call needs a proven FCB address in DE
-```
-
-```text
-nasm/cpm86: (['nasm', '-Werror', '-f', 'bin', 'example.asm', '-o', 'example.com'], b'', b'example.asm:1890: error: TIMES value -413 is negative\n')
-```
-
-```text
-asm86/cpm86: (['cpm86_asm86', 'example.a86'], b'\r\nCP/M-86 / CCP/M-86 8086 ASSEMBLER VER 1.1N2\r\nEND OF PASS 1\r\nEND OF PASS 2\r\n** ERROR NO: 10 **  NEAR: "XOVFLOW"   UNDEFINED ELEMENT OF EXPRESSION\r\n 09B1 0000                      dw x_ovflow ; translated code exceeds ORG\r\nEND OF ASSEMBLY.  NUMBER OF ERRORS:   1.  USE FACTOR: 11%\r\n\r\n', b'ERR: cpm86_asm86: fatal assembly error(s) detected; removing example.h86\n')
-```
-
-```text
-masm3/cpm86: (['pcdev_masm3', 'example.asm,example.obj;'], b'Microsoft MACRO Assembler  Version 3.00               \r\n(C)Copyright Microsoft Corp 1981, 1983, 1984\r\n\r\n 09A6  0000 U                   \tdw x_ovflow ; translated code exceeds ORG\r\n E r r o r   ---\t9:Symbol not defined            \r\n 09A8     01 [                  \tdb (2048-($-x_entry+100h)) dup(0)\r\n E r r o r   ---\t72:Illegal value for DUP count   \r\n\r\n34526 Bytes free   \r\n\r\nWarning Severe\r\nErrors\tErrors \r\n0\t2\r\n', b'')
-```
-
-```text
-drasm86/cpm86: b'--------------------------------------------------\r\nRASM-86 Assembler   12-Mar-87  PC-DOS Version 1.4a\r\nSerial No. XXXX-0000-654321    All Rights Reserved\r\nCopyright (C) 1982-86       Digital Research, EDC.\r\n--------------------------------------------------\r\n\r\nEnd of Pass 1\r\nEnd of Pass 2\r\n** ERROR NO: 10 **  NEAR: "X_OVFLOW"   UNDEFINED ELEMENT OF EXPRESSION\r\n 09B1 0000                        dw x_ovflow ; translated code exceeds ORG\r\n** ERROR NO: 31   Current segment is too big (over 64K)\r\n 09B3                             rb (2048-(p_1-x_entry+100h))\r\n\r\nCODE  009B3\r\n\r\nEnd of assembly.  Number of errors:   2.  Use factor: 14%\r\n'
-```
+Fixed ORG 0800h keeps variables page-aligned. General flag and branch optimisations allow all emitters to fit. tests/vtlbench.py and tests/vtlscr.py separately compare interactive and script behavior on both targets, all four emitters. DOS uses the first native default FCB. Reference: examples/ref/vtl2.a86.
 
 ## wash15.asm
 
-Arithmetic BDOS/WBOOT aliases now resolve. Dynamic MOV C,A dispatch and BDOS 13 remain blocked on CP/M-86; DOS also needs broader FCB analysis. Reference: examples/ref/was15.a86.
+Guarded memory-loaded service dispatch and native reset allow unchanged CP/M-86 translation. tests/wash.py separately compares five reference transcripts through all four emitters. DOS still needs FCB representation work; hardware interrupt policy remains a manual review. Reference: examples/ref/was15.a86.
 
 Observed blocker samples (at most three diagnostic lines per combination):
 
 ```text
-nasm/msdos: xlt88:259: BDOS function 17 needs a native port for msdos
-xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/wash15.asm:259: cannot translate BDOS transfer: BDOS
-xlt88:338: BDOS function 18 needs a native port for msdos
-```
-
-```text
-nasm/cpm86: xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/wash15.asm:872: BDOS call needs a statically proven function in C: BDOS
-xlt88:1121: BDOS function 13 needs a native port for cpm86
-xlt88:/Users/thierry/Projects/CPM86/xlt88/examples/wash15.asm:1121: cannot translate BDOS transfer: 05H
+nasm/msdos: xlt88: DOS FCB analysis: FCB must have dedicated DS storage of at least 33 bytes
 ```

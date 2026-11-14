@@ -405,21 +405,25 @@ syntax or output assembler choice.
 
 ## FCB input contract
 
-Input FCBs always follow CP/M semantics, including for DOS output. Target
-selection must not ask the caller to assert DOS layouts. FCB analysis must
-bind storage, aliases, field accesses and BDOS operations before native DOS
-lowering. Rewrite proven source uses into native target storage and code;
-diagnose unsupported or ambiguous uses. Native DOS-layout fixtures alone do
-not establish automatic CP/M source translation.
+Input FCBs follow CP/M semantics, including for DOS output. Identifiable
+field accesses need a valid translation or a diagnostic. Arbitrary computed
+memory addresses use native target memory: scripts inspecting OS-specific
+memory may need porting. This is a native translator, not a virtual CP/M
+address space. Target selection is sufficient; no layout opt-in flag is needed.
 
-The initial fcb.c pass proves a restricted opaque-metadata subset: exact FCB
-addresses at calls, dedicated DS storage, a bounded name-initialization copier,
-and absence of unproved memory/control-flow escapes. Approved calls reach a
-backend file_call hook; other calls keep the unsupported diagnostic. Target
-storage can grow from 33 to 36 bytes, while the source and its addresses remain
-unchanged. Metadata users require a later field-access transformation; they
-are rejected today. Whole-program restrictions are intentional and documented
-rather than treating lack of an obvious alias as proof of safety.
+The first default FCB can use DOS PSP storage at 005Ch..007Fh directly.
+`fcbdef.c` validates exact addresses at supported calls and diagnoses explicit
+metadata references, including constant expressions and straight-line register
+address calculations. Drive/name bytes have a common layout. Metadata belongs
+to native DOS after translated calls. Unknown addresses, joins and subroutine
+returns are not a whole-program alias proof; they follow the native-memory
+contract. The pass has no runtime or assembler dependency and allocates nothing.
+Second/default mixed FCB use remains diagnosed because storage overlaps.
+
+Private DS objects retain the existing stricter `fcb.c` audit: growing storage
+from 33 to 36 bytes relocates following objects and needs its own safety proof.
+Approved calls reach the backend `file_call` hook; the source remains unchanged.
+This distinction keeps address-space policy separate from storage relocation.
 
 ## Initial M80 reader
 
@@ -718,3 +722,97 @@ and injects a resolver directly, verifying shared-call facts, unknown joins and
 source immutability independently of parsers, operating systems and assemblers.
 Integration tests separately establish emitted native execution. New code keeps
 lowercase underscore names, `_t` typedefs and filename stems within eight characters.
+
+## Flag liveness and compact native code
+
+`flags_live_plan` borrows an immutable source program and returns an owned byte
+mask per original record. Bits identify C, AC, Z, S and P values that may still
+be observed after that record. Allocation failure returns zero and a NULL output;
+the caller frees successful output. The module has no OS or emitter dependency.
+
+Analysis starts conservatively live and monotonically removes bits whose
+successors prove replacement before observation. Direct labels provide edges;
+unknown destinations, returns, PSW reads and unknown instructions retain flags.
+Calls may use a proven callee input requirement; returns remain conservative,
+and conditional calls also retain requirements from their skipped path. No
+private calling convention or return-value preservation is inferred.
+
+CPU lowering consumes these facts to select semantically equivalent sequences.
+The target shrink pass separately coalesces proven canonical flag images and
+proves rel8 reach. Emitters render the selected encoding without their own
+semantic analysis: JMPS for ASM86/RASM-86 and JMP SHORT for MASM 3. Labels,
+unknown sizes and layout events remain barriers to range proofs.
+
+The source/target split has isolated graph and event-ownership tests, plus
+execution cases for live flags, dead flags, PSW observation and assembler ranges.
+
+## FCB address discovery and representation audit
+
+`fcb_address_before` borrows an immutable source program and returns a
+`fcb_address_t`: a borrowed source operand expression plus its defining record
+index. It follows a bounded straight-line register path, including XCHG, and
+rejects unknown writes and alternate entries. Failure clears the result. It
+owns no allocations and depends on neither backend nor assembler syntax.
+
+`fcb_analyze` resolves that expression using the injected symbol table and
+selects the default-memory contract or private-storage audit before producing an owned
+`fcb_plan_t`. Address recognition never authorizes metadata reinterpretation.
+The backend consumes approved call annotations; renderers only format output.
+DOS random-position services retain this same audit and native 128-byte record
+size. The first default FCB instead uses the native-memory contract above; the
+second default FCB and mixed storage cases remain diagnostic.
+
+## Native record fields and shared service classification
+
+`fcbapi.h` defines the shared native-DOS FCB service set. A supported number
+still requires a validated object plan; classification does not authorize field
+accesses. Analyses resolve BDOS entry expressions through the injected symbol
+table, including arithmetic EQU aliases.
+
+For native 128-byte records, direct reads of R0..R2 have the same three-byte
+meaning on both targets. The private-storage audit accepts only an object plus
+a constant field offset, parsed as an expression tree, with sufficient source
+storage and width checks. It does not convert numeric source addresses into
+relocatable pointers or approve general metadata writes. Default PSP storage
+uses the corresponding direct-address read check. File size establishes the
+native record length and clears the result field before lookup; renderers
+receive ordinary typed instructions without OS decisions.
+
+## Guarded memory selectors and native reset composition
+
+`os_values_t.guarded` distinguishes memory-derived candidates from proven
+register facts. Recognition first solves register dataflow, then collects known
+direct STA values for a dedicated DS 1 cell through the injected expression
+resolver. Unknown direct stores or more than four values invalidate the set.
+A second fixed point propagates these guarded loads. This is deliberately not
+whole-program alias analysis: indirect writes can reach the cell. No source
+names or application identities participate. Inputs remain immutable and the
+caller owns the result arrays.
+
+Lowering compares every guarded value, including singletons and the last arm;
+unmatched values use native program termination. Translation diagnoses that
+boundary. Proven sets retain their existing dispatch contract. The scalar
+recognition interface projects guarded values to unknown, so these facts do
+not silently authorize a DOS FCB layout conversion. Independent fixtures cover
+renamed symbols, indirect overwrites, unknown direct stores and singleton guards.
+
+`reset_disks` receives an emitter and injected `reset_call_t` native-call callback.
+It owns no global state. The shared sequence handles drive A, DMA, a temporary
+native search FCB/buffer and the source reset result; each backend owns its ABI.
+Emitters receive ordinary instructions/data. Difficult system-data, interrupt
+policy and alias cases may require explicit post-translation adjustment rather
+than expanding heuristics until a particular application happens to run.
+
+## Native results requiring explicit consumer review
+
+The backend BDOS hook returns a `bdos_result_t` status: unsupported, lowered,
+or a native far result. The CPU/OS orchestration layer emits the review
+diagnostic and assembly comment for a far result. The CP/M-86 backend retains
+ES:BX for 27/31; neither the backend nor an assembler renderer guesses which
+later source dereferences use that segment. Native result lowering is therefore
+separate from pointer-provenance analysis, which remains future work.
+
+The regression runner accepts an optional test-only target patch callback.
+This permits an explicitly labelled native consumer to validate an ABI without
+pretending that the translator synthesized that consumer. Unmodified-source
+acceptance tests leave the callback unset. Test reports distinguish these paths.

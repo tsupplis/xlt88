@@ -1,6 +1,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "fcb.h"
+#include "fcbaddr.h"
+#include "fcbapi.h"
+#include "fcbdef.h"
 
 static int
 equal(const char *a, const char *b)
@@ -8,25 +11,11 @@ equal(const char *a, const char *b)
 	return symbol_equal(a, b);
 }
 
-static int
-file_function(long function)
+static long
+address_value(const symbol_table_t *symbols, const char *text)
 {
-	return function == 15 || function == 16 || function == 20 ||
-	    function == 21 || function == 22;
-}
-
-/* The address may survive these instructions, but must not escape into
- * another register or memory where the whole-program audit cannot follow it. */
-static int
-preserves_fcb_address(const statement_t *stmt)
-{
-	if (equal(stmt->opcode, "nop"))
-		return 1;
-	if (!equal(stmt->opcode, "mvi") && !equal(stmt->opcode, "mov"))
-		return 0;
-	return !equal(stmt->first, "d") && !equal(stmt->first, "e") &&
-	    !equal(stmt->first, "m") && !equal(stmt->second, "d") &&
-	    !equal(stmt->second, "e") && !equal(stmt->second, "m");
+	long value;
+	return symbols_eval(symbols, text, -1, &value) ? value : -1;
 }
 
 static size_t
@@ -53,6 +42,26 @@ object_size(const source_program_t *source, const symbol_table_t *symbols, const
 	if (object->line && object->line <= source->count)
 		symbols_eval(symbols, source->records[object->line - 1].statement.first, -1, &size);
 	return size;
+}
+
+/* R0..R2 are a shared 24-bit, 128-byte-record field. Accept only a
+ * relocatable object-plus-constant expression, never a numeric source address.
+ * Other metadata and indirect aliases retain the existing storage audit. */
+static const symbol_t *
+record_read(const symbol_table_t *symbols, const char *text, int width)
+{
+	const char *error = NULL;
+	const symbol_t *object = NULL;
+	expr_t *tree = expr_parse(text, NULL, NULL, 0, &error);
+	if (tree && tree->kind == expr_binary && tree->op == expr_plus) {
+		const expr_t *name = tree->left, *offset = tree->right;
+		if (name->kind == expr_integer) { name = tree->right; offset = tree->left; }
+		if (name->kind == expr_symbol && offset->kind == expr_integer &&
+		    offset->integer >= 33 && offset->integer <= 36 - width)
+			object = binding(symbols, name->text);
+	}
+	expr_destroy(tree);
+	return object;
 }
 
 static int
@@ -111,25 +120,28 @@ fcb_analyze(const source_program_t *source, const symbol_table_t *symbols,
 	allowed = calloc(count ? count : 1, 1);
 	regions = calloc(count ? count : 1, sizeof(*regions));
 	if (!plan->calls || !plan->grow || !objects || !allowed || !regions) goto done;
+	result = fcb_default_plan(source, symbols, functions, plan->calls, &problem);
+	if (result) { result = result > 0; goto done; }
 	/* A call must receive an exact object address through a proven-safe
 	 * straight-line path; metadata safety is checked separately below. */
 	for (i = 0; i < count; ++i) {
 		const statement_t *stmt = &source->records[i].statement;
 		size_t load;
 		const symbol_t *object;
-		if (!transfer(stmt) || symbol_value(symbols, stmt->first) != 5 || !file_function(functions[i])) continue;
+		if (!transfer(stmt) || address_value(symbols, stmt->first) != 5 || !fcb_function(functions[i])) continue;
 		found = 1;
-		load = previous(source, i);
-		problem = "file call needs a proven FCB address in DE";
-		if (stmt->label[0]) goto done;
-		while (load != count) {
-			const statement_t *candidate = &source->records[load].statement;
-			if (equal(candidate->opcode, "lxi") && equal(candidate->first, "d")) break;
-			if (candidate->label[0]) goto done;
-			if (!preserves_fcb_address(candidate)) goto done;
-			load = previous(source, load);
+		{
+			fcb_address_t address;
+			long value;
+			problem = "file call needs a proven FCB address in DE";
+			if (!fcb_address_before(source, i, &address)) goto done;
+			load = address.definition;
+			if (symbols_eval(symbols, address.expression, -1, &value) &&
+			    (value == 0x5c || value == 0x6c)) {
+				problem = "default CP/M FCB recognized; native storage and whole-program field-use proof are required";
+				goto done;
+			}
 		}
-		if (load == count) goto done;
 		stmt = &source->records[load].statement;
 		object = binding(symbols, stmt->second);
 		if (!object || object->is_equ) goto done;
@@ -162,7 +174,7 @@ fcb_analyze(const source_program_t *source, const symbol_table_t *symbols,
 		const symbol_t *routine, *object;
 		size_t load, origin, start;
 		long address;
-		if (!equal(stmt->opcode, "call") || symbol_value(symbols, stmt->first) == 5) continue;
+		if (!equal(stmt->opcode, "call") || address_value(symbols, stmt->first) == 5) continue;
 		problem = "unrecognized subroutine may expose FCB storage";
 		routine = binding(symbols, stmt->first);
 		if (!routine || routine->is_equ) goto done;
@@ -233,7 +245,11 @@ fcb_analyze(const source_program_t *source, const symbol_table_t *symbols,
 		}
 		if (equal(stmt->opcode, "lda") || equal(stmt->opcode, "lhld")) {
 			const symbol_t *address = binding(symbols, stmt->first);
-			if (!address || address->is_equ || address->source_address < 0) {
+			const symbol_t *record = record_read(symbols, stmt->first,
+			    equal(stmt->opcode, "lhld") ? 2 : 1);
+			if (record && !record->is_equ && objects[record->id - 1] &&
+			    object_size(source, symbols, record) >= 36) allowed[i] = 1;
+			if (!allowed[i] && (!address || address->is_equ || address->source_address < 0)) {
 				problem = "direct memory address cannot be audited for FCB aliases"; goto done;
 			}
 		}
@@ -248,7 +264,7 @@ fcb_analyze(const source_program_t *source, const symbol_table_t *symbols,
 		if ((equal(stmt->opcode, "inx") || equal(stmt->opcode, "dcx")) && equal(stmt->first, "sp")) {
 			problem = "stack pointer arithmetic cannot be audited"; goto done;
 		}
-		if (transfer(stmt) && symbol_value(symbols, stmt->first) == 5 && functions[i] == 26) {
+		if (transfer(stmt) && address_value(symbols, stmt->first) == 5 && functions[i] == 26) {
 			size_t load = previous(source, previous(source, i));
 			const symbol_t *buffer = load < count ? binding(symbols, source->records[load].statement.second) : NULL;
 			long size;
@@ -277,7 +293,7 @@ fcb_analyze(const source_program_t *source, const symbol_table_t *symbols,
 		if (transfer(stmt)) {
 			long address = symbol_value(symbols, stmt->first);
 			if (address >= 0 && address != 0 && address != 5) { problem = "numeric transfer cannot be audited for FCB aliases"; goto done; }
-			if (!equal(stmt->opcode, "jmp") && stmt->opcode[0] == 'c' && address != 5 && !allowed[i]) {
+			if (!equal(stmt->opcode, "jmp") && stmt->opcode[0] == 'c' && address_value(symbols, stmt->first) != 5 && !allowed[i]) {
 				problem = "unrecognized subroutine may expose FCB storage"; goto done;
 			}
 		}

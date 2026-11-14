@@ -2,7 +2,7 @@
 from pathlib import Path
 import tempfile
 from toolrun import runner
-source = " org 100h\n mvi e,'A'\n mvi c,4\n call 5\n mvi e,'L'\n mvi c,5\n call 5\n jmp 0\n end\n"
+source = " org 100h\n mvi c,3\n call 5\n mvi e,'A'\n mvi c,4\n call 5\n mvi e,'L'\n mvi c,5\n call 5\n jmp 0\n end\n"
 with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
     for target in ('msdos','cpm86'):

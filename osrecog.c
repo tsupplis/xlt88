@@ -29,7 +29,7 @@ recognize_os_calls(const source_program_t *program, resolve_value_t resolve,
 		return 0;
 	}
 	for (size_t i = 0; i < program->count; ++i)
-		values[i] = sets[i].count == 1 ? sets[i].values[0] : -1;
+		values[i] = sets[i].count == 1 && !sets[i].guarded ? sets[i].values[0] : -1;
 	free(sets);
 	*functions = values;
 	return 1;
@@ -71,6 +71,7 @@ merge_state(os_state_t *to, const os_state_t *from)
 		os_values_t *a = &to->reg[r];
 		const os_values_t *b = &from->reg[r];
 		if (!a->count) continue;
+		if (b->guarded && !a->guarded) { a->guarded = 1; changed = 1; }
 		if (!b->count) { a->count = 0; changed = 1; continue; }
 		for (int j = 0; j < b->count; ++j) {
 			int k;
@@ -101,17 +102,18 @@ branch_record(const source_program_t *program, const char *name,
 	return found;
 }
 
-/* Transfer one instruction without inspecting target OS contracts. Memory
- * values and stack contents are deliberately outside this abstract domain. */
+/* Transfer one instruction without inspecting target OS contracts. A load
+ * annotation supplies guarded candidates; stack contents remain unknown. */
 static os_state_t
 transfer_state(const source_record_t *record, os_state_t out,
-    resolve_value_t resolve, void *symbols)
+    resolve_value_t resolve, void *symbols, os_values_t load)
 {
 	const statement_t *s = &record->statement;
 	const char *op = s->opcode;
 	os_state_t unknown = { .reached = 1 };
 	int r = reg_index(s->first), q = reg_index(s->second);
 	if (record->problem) out = unknown;
+	else if (!strcmp(op, "lda") && load.count) out.reg[0] = load;
 	else if (!strcmp(op, "mvi") && r >= 0) out.reg[r] = constant(resolve(symbols, s->second));
 	else if (!strcmp(op, "mov") && r >= 0) out.reg[r] = q >= 0 ? out.reg[q] : constant(-1);
 	else if (!strcmp(op, "lxi") && (r == 1 || r == 3 || r == 5)) {
@@ -177,6 +179,47 @@ seed_states(const source_program_t *program, resolve_value_t resolve,
 	}
 }
 
+/* A byte cell's direct stores supply candidates, not an alias proof. Other
+ * writes may reach native memory, so every consumer must check the selector
+ * at runtime. Only dedicated DS 1 cells with known direct stores qualify. */
+static int
+memory_loads(const source_program_t *program, resolve_value_t resolve,
+    void *symbols, const os_state_t *states, os_values_t *loads)
+{
+	int found = 0;
+	for (size_t i = 0; i < program->count; ++i) {
+		const statement_t *load = &program->records[i].statement;
+		long address;
+		int cell = 0, stores = 0, invalid = 0;
+		os_state_t combined = {0};
+		if (strcmp(load->opcode, "lda")) continue;
+		address = resolve(symbols, load->first);
+		if (address < 0) continue;
+		for (size_t j = 0; j < program->count; ++j) {
+			const statement_t *stmt = &program->records[j].statement;
+			if (stmt->label[0] && resolve(symbols, stmt->label) == address) {
+				size_t declaration = j;
+				while (declaration < program->count &&
+				    !program->records[declaration].statement.opcode[0]) ++declaration;
+				if (declaration < program->count) {
+					const statement_t *data = &program->records[declaration].statement;
+					if (!strcmp(data->opcode, "ds") && resolve(symbols, data->first) == 1) cell = 1;
+				}
+			}
+			if (strcmp(stmt->opcode, "sta") || resolve(symbols, stmt->first) != address) continue;
+			++stores;
+			if (!states[j].reached || !states[j].reg[0].count) { invalid = 1; break; }
+			merge_state(&combined, &states[j]);
+		}
+		if (cell && stores && !invalid && combined.reg[0].count) {
+			loads[i] = combined.reg[0];
+			loads[i].guarded = 1;
+			found = 1;
+		}
+	}
+	return found;
+}
+
 int
 recognize_os_sets(const source_program_t *program, resolve_value_t resolve,
     void *symbols, os_values_t **functions)
@@ -184,36 +227,45 @@ recognize_os_sets(const source_program_t *program, resolve_value_t resolve,
 	size_t n = program->count;
 	os_state_t *states = calloc(n ? n : 1, sizeof(*states));
 	os_values_t *result = calloc(n ? n : 1, sizeof(*result));
+	os_values_t *loads = calloc(n ? n : 1, sizeof(*loads));
 	long *edges = malloc((n ? n : 1) * sizeof(*edges));
 	unsigned char *incoming = calloc(n ? n : 1, 1);
 	int changed = 1;
 
 	*functions = NULL;
-	if (!states || !result || !edges || !incoming) {
+	if (!states || !result || !loads || !edges || !incoming) {
 		free(states);
 		free(result);
+		free(loads);
 		free(edges);
 		free(incoming);
 		return 0;
 	}
-	seed_states(program, resolve, symbols, states, edges, incoming);
-	while (changed) {
-		changed = 0;
-		for (size_t i = 0; i < n; ++i) {
-			const source_record_t *record = &program->records[i];
-			const statement_t *s = &record->statement;
-			const char *op = s->opcode;
-			os_state_t out;
-			if (!states[i].reached) continue;
-			out = transfer_state(record, states[i], resolve, symbols);
-			if (edges[i] >= 0) changed |= merge_state(&states[edges[i]],
-			    one_of("call cz cnz cc cnc cp cm cpe cpo", op) ? &states[i] : &out);
-			if (!one_of("jmp ret pchl hlt end", op) && i + 1 < n)
-				changed |= merge_state(&states[i + 1], &out);
+	for (int phase = 0; phase < 2; ++phase) {
+		memset(states, 0, n * sizeof(*states));
+		memset(incoming, 0, n);
+		changed = 1;
+		seed_states(program, resolve, symbols, states, edges, incoming);
+		while (changed) {
+			changed = 0;
+			for (size_t i = 0; i < n; ++i) {
+				const source_record_t *record = &program->records[i];
+				const statement_t *s = &record->statement;
+				const char *op = s->opcode;
+				os_state_t out;
+				if (!states[i].reached) continue;
+				out = transfer_state(record, states[i], resolve, symbols, loads[i]);
+				if (edges[i] >= 0) changed |= merge_state(&states[edges[i]],
+				    one_of("call cz cnz cc cnc cp cm cpe cpo", op) ? &states[i] : &out);
+				if (!one_of("jmp ret pchl hlt end", op) && i + 1 < n)
+					changed |= merge_state(&states[i + 1], &out);
+			}
 		}
+		if (phase || !memory_loads(program, resolve, symbols, states, loads)) break;
 	}
 	for (size_t i = 0; i < n; ++i) result[i] = states[i].reg[2];
 	free(states);
+	free(loads);
 	free(edges);
 	free(incoming);
 	*functions = result;

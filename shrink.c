@@ -60,18 +60,25 @@ bound(const output_t *event)
 		}
 		for (size_t i = 0; i < 2; ++i)
 			if (event->operands[i].kind == operand_memory || event->operands[i].kind == operand_byte_memory) return 7;
-		if (!strcmp(op, "jmp") || !strcmp(op, "call")) return 3;
+		if (!strcmp(op, "jmp")) return event->short_branch ? 2 : 3;
+		if (!strcmp(op, "call")) return 3;
 		if (!strcmp(op, "mov")) return second->kind == operand_register ? 2 : 3;
 		if (!strcmp(op, "push") || !strcmp(op, "pop")) return first->kind == operand_register ? 1 : 3;
+		if ((!strcmp(op, "inc") || !strcmp(op, "dec")) && first->kind == operand_register && first->text &&
+		    (!strcmp(first->text, "ax") || !strcmp(first->text, "bx") || !strcmp(first->text, "cx") ||
+		     !strcmp(first->text, "dx") || !strcmp(first->text, "si") || !strcmp(first->text, "di") ||
+		     !strcmp(first->text, "bp") || !strcmp(first->text, "sp"))) return 1;
 		if (!strcmp(op, "inc") || !strcmp(op, "dec") || !strcmp(op, "xchg") ||
 		    !strcmp(op, "not") || !strcmp(op, "int") || !strcmp(op, "in") || !strcmp(op, "out")) return 2;
 		if (!strcmp(op, "shl") || !strcmp(op, "shr") || !strcmp(op, "rol") ||
-		    !strcmp(op, "ror") || !strcmp(op, "rcl") || !strcmp(op, "rcr")) return 3;
+		    !strcmp(op, "ror") || !strcmp(op, "rcl") || !strcmp(op, "rcr"))
+			return second->kind == operand_immediate && second->value == 1 ? 2 : 3;
 		if (!strcmp(op, "add") || !strcmp(op, "adc") || !strcmp(op, "sub") ||
 		    !strcmp(op, "sbb") || !strcmp(op, "cmp") || !strcmp(op, "and") ||
 		    !strcmp(op, "or") || !strcmp(op, "xor") || !strcmp(op, "test"))
-			return second->kind == operand_register ? 2 : 4;
-		if (!strcmp(op, "ret")) return 3;
+			return second->kind == operand_register ? 2 :
+			    first->kind == operand_register && first->text && !strcmp(first->text, "al") ? 2 : 4;
+		if (!strcmp(op, "ret")) return (first->kind == operand_register && !first->text && !first->expression) ? 1 : 3;
 		if (!strcmp(op, "lahf") || !strcmp(op, "sahf") || !strcmp(op, "nop") ||
 		    !strcmp(op, "pushf") || !strcmp(op, "popf") || !strcmp(op, "hlt") ||
 		    !strcmp(op, "cli") || !strcmp(op, "sti") || !strcmp(op, "clc") ||
@@ -112,15 +119,81 @@ next(const target_program_t *program, size_t index)
 	return index;
 }
 
+/* Removed events retain their slot so source/event indices remain stable. */
+static void
+clear_event(output_t *event)
+{
+	free((void *)event->text);
+	for (size_t i = 0; i < 2; ++i) {
+		free((void *)event->operands[i].text);
+		expr_destroy(event->operands[i].expression);
+	}
+	memset(event, 0, sizeof(*event));
+	event->kind = output_line_end;
+}
+
+static int
+is_instruction(const output_t *event, const char *name)
+{
+	return event->kind == output_instruction && !strcmp(event->text, name);
+}
+
+static int
+word_step(const output_t *event)
+{
+	const operand_t *op = &event->operands[0];
+	return (is_instruction(event, "inc") || is_instruction(event, "dec")) &&
+	    op->kind == operand_register && op->text &&
+	    (!strcmp(op->text, "bx") || !strcmp(op->text, "cx") ||
+	     !strcmp(op->text, "dx") || !strcmp(op->text, "sp"));
+}
+
+/* LAHF establishes a canonical AH flag image. Consecutive word increments
+ * and decrements can share that image: they neither read flags nor touch AH.
+ * Labels and every other instruction terminate the proof. */
+static void
+coalesce_flags(target_program_t *program)
+{
+	for (size_t i = 0; i < program->count; ++i) {
+		size_t cursor;
+		if (!is_instruction(&program->events[i], "lahf")) continue;
+		cursor = next(program, i);
+		while (cursor < program->count) {
+			output_t *event = &program->events[cursor];
+			if (word_step(event)) {
+				cursor = next(program, cursor);
+				continue;
+			}
+			if (is_instruction(event, "sahf")) {
+				size_t following = next(program, cursor);
+				size_t step = following < program->count ? next(program, following) : program->count;
+				if (step < program->count && is_instruction(&program->events[following], "lahf") &&
+				    word_step(&program->events[step])) {
+					clear_event(event);
+					clear_event(&program->events[following]);
+					cursor = next(program, following);
+					continue;
+				}
+			}
+			break;
+		}
+	}
+}
+
 int
 target_shrink(target_program_t *program)
 {
 	size_t i;
+	coalesce_flags(program);
 	for (i = 0; i < program->count; ++i) {
 		output_t *branch = &program->events[i];
 		int code = condition(branch);
 		size_t jump, label;
-		if (code < 0) continue;
+		if (code < 0) {
+			if (is_instruction(branch, "jmp") && fits(program, i, branch))
+				branch->short_branch = 1;
+			continue;
+		}
 		jump = next(program, i);
 		label = jump < program->count ? next(program, jump) : program->count;
 		if (label < program->count && program->events[jump].kind == output_instruction &&

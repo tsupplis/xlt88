@@ -522,8 +522,8 @@ see [api.md](api.md) for execution coverage and the emulator collision limitatio
 `make vtlbench` measures unchanged VTL-2 against its supplied direct xlt86
 reference. It validates reference execution and records each xlt88 target as
 executed or explicitly blocked. See [vtlbench.md](vtlbench.md). Native drive
-selection (BDOS 14) is now available on both targets; disk reset remains pending
-because the native contracts differ.
+selection (BDOS 14) and reset (BDOS 13) are available on both targets; reset
+composes native operations to establish the source drive/DMA/result contract.
 
 
 The owned target program now has a conservative branch-size pass (`shrink.c`).
@@ -549,3 +549,51 @@ conditional dispatch; unknown values remain errors. DOS FCB address loads may
 be separated from calls by proven-safe register operations. Auxiliary/list
 output (4/5) now assembles on both targets, with device execution still unverified.
 See [api.md](api.md) for the distinction between lowering and execution coverage.
+
+### VTL-2 acceptance
+
+Unmodified `examples/vtl2.asm` now assembles and passes the xlt86-reference
+transcript on CP/M-86 with all four emitters (`make vtlbench`). Its variables
+remain at 0800h. General flag-liveness and short-branch improvements make it fit;
+no source-specific patch or relocation is used. DOS now passes the same
+interactive acceptance through all four emitters using the first native default
+FCB. Arbitrary memory accesses have native target semantics.
+Native reader input is now emitted on both targets; CP/M-86 login-vector output
+is execution-tested. See [progress.md](progress.md) and [api.md](api.md) for limits.
+
+Script-file acceptance now also compares unchanged VTL-2 with the unchanged
+xlt86 reference: stored programs, multi-record input, empty/missing files and
+Ctrl-Z termination pass on all four CP/M-86 emitters (`tests/vtlscr.py`).
+DOS random read and set-random-record calls are available for audited opaque
+FCBs. Native CP/M-86 attribute, user-area and drive-protection calls have been
+added; execution limits are recorded in [api.md](api.md).
+
+The script-file comparison now also passes on DOS with all four emitters.
+The first default FCB uses native PSP storage; explicit incompatible metadata
+accesses are diagnosed. Scripts that inspect arbitrary OS memory may require
+porting. No new command-line option or compatibility runtime is introduced.
+
+### WASH15 reference and additional file services
+
+`tests/wash.py` translates unchanged WASH15 through all four CP/M-86 emitters
+and compares five complete transcripts with the supplied patched reference.
+Results and remaining DOS FCB blockers are recorded in [wash.md](wash.md).
+Generic guarded memory-selector recognition enables its service dispatch;
+unmatched values terminate natively and are diagnosed at translation time.
+The original interrupt policy is preserved and still needs hardware review.
+DOS random write/file size now execute across all four emitters for validated
+FCB plans. CP/M-86 selected-drive reset is emitted, with state execution still
+limited by emulator support. See [api.md](api.md) for field and error contracts.
+
+For post-translation review, see [porting.md](porting.md): implicit page alignment,
+fixed placement, segments, stacks, FCBs and the boundary between generic analysis
+and explicit manual adjustments.
+
+
+CP/M-86 now has native lowering for all 39 non-reserved CP/M 2.2 entry points.
+Functions 27/31 return ES:BX and emit explicit pointer-consumer review warnings;
+this does not complete automatic flat-memory translation or behavioral coverage.
+See [api.md](api.md). WASH reference comparisons include CMD sizes; DISK7 has
+repeatable reference-only scenarios and a blocker inventory in [diskref.md](diskref.md).
+
+The current cross-project snapshot and proposed next batch are in [status.md](status.md).

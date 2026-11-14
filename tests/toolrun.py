@@ -17,7 +17,7 @@ def runner(work, target):
         result = subprocess.run(args, cwd=work, env=env if execution else dict(env, EMU2_DOSVER="3.3"), capture_output=True, timeout=60, input=input)
         assert result.returncode in codes, (args, result.stdout, result.stderr)
         return result.stdout
-    def build(name, text, flavor, dialect="intel"):
+    def build(name, text, flavor, dialect="intel", patch=None):
         # Never let a failed tool leave a previous executable looking successful.
         for extension in ('.obj','.exe','.com','.cmd','.h86'):
             (work/(name+extension)).unlink(missing_ok=True)
@@ -25,6 +25,11 @@ def runner(work, target):
         source.write_bytes(text) if isinstance(text, bytes) else source.write_text(text)
         suffix = '.a86' if flavor in ('asm86','drasm86') else '.asm'
         command([str(exe),'--dialect='+dialect,'--target='+target,'--emit='+flavor,str(source),name+suffix])
+        # Explicit test-only target ports stay separate from source translation.
+        if patch is not None:
+            assembly = work / (name + suffix)
+            adjusted = patch(assembly.read_text()).replace('\r\n', '\n')
+            assembly.write_bytes(adjusted.replace('\n', '\r\n').encode())
         if flavor == 'asm86':
             log = command([assembler,name+'.a86'])
             # Ignored syntax is still a regression, even if the wrapper accepts it.

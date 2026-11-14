@@ -192,8 +192,8 @@ write_asm86(void *context, const output_t *event)
 			write_arguments(ctx, event);
 			fprintf(out, "\nz_%lu:", ctx->branch);
 		} else {
-			fprintf(out, "\t%s", event->text);
-			if (ctx->masm && !strcmp(event->text, "jmp") && (first->kind == operand_branch || first->kind == operand_internal_label)) fputs(" near ptr", out);
+			fprintf(out, "\t%s", !ctx->masm && event->short_branch && !strcmp(event->text, "jmp") ? "jmps" : event->text);
+			if (ctx->masm && !strcmp(event->text, "jmp") && (first->kind == operand_branch || first->kind == operand_internal_label)) fputs(event->short_branch ? " short" : " near ptr", out);
 			write_arguments(ctx, event);
 		}
 		break;

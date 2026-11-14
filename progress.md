@@ -9,9 +9,10 @@ implementation and tests. Detailed OS service coverage lives in api.md.
 | Measure | Current result | What it establishes |
 | --- | --- | --- |
 | 8080 mnemonic fixtures | 78/78 | Every translator mnemonic appears in an assembled fixture; not exhaustive instruction behavior |
+| AND-immediate execution | 8,192/8,192: 1,024 per emitter/OS pair | Exhaustive accumulator values for four constant-AC masks, with result and full PSW checks |
 | Arithmetic execution | 70,400/70,400: 8,800 per emitter/OS pair | All four emitters × DOS 1.0 and CP/M-86 agree with the reference model for the existing case set |
-| CP/M-86 native BDOS lowering entries | 27/39 non-reserved CP/M 2.2 functions | Functions 0, 1, 2, 4, 5, 6, 9–12, 14–23, 25, 26, 33–36, 40 have lowering code; functions 4, 5 and 40 execution unverified |
-| DOS native BDOS lowering entries | 18/39, five with restricted FCB analysis | 0, 1, 2, 4, 5, 6, 9, 11, 14, 19, 23, 25, 26 plus 15, 16, 20–22 for proven opaque FCB uses; 4/5 device execution unverified; not general file/API coverage |
+| CP/M-86 native BDOS lowering entries | 39/39; 27/31 require pointer-consumer port review | All non-reserved entries emit native code. Two return ES:BX without automatic source-pointer conversion; device, protection/user-state and zero-fill execution remain limited |
+| DOS native BDOS lowering entries | 24/39, nine with validated FCB plans | 0–6, 9, 11, 13, 14, 19, 23, 25, 26 plus 15, 16, 20–22, 33–36 for audited private or first-default FCB uses; 3/4/5 device execution unverified; not general file/API coverage |
 | Input readers | Intel implemented; M80/MAC partial | MAC normalises unchanged DISK7; RMAC and COM pending |
 | Final assembler emitters | 4/4 | NASM, ASM86 1.1N2, MASM 3.00 and DRASM86 (RASM-86 1.4a); all three legacy flavors execute DOS 1.0 and CP/M-86 fixtures |
 | Normalized 8080 output | Implemented | Separate output from the parsed source, including preferred symbol names |
@@ -31,8 +32,8 @@ emulation of a CP/M-80 machine identity.
 | 2. Shared symbols and editable state | Partial | Stable IDs scoped to source fingerprint; preferred-name import/export; conflicts/stale-state checks; source layout and numeric branch binding to unique labels | Rebind after source edits; generated-label identities; explicit aliases/address annotations; generated addresses from assembler maps |
 | 3. Typed intermediate representation | Partial | Fixed-region emission plan preserving source IDs; owned expression trees, ID-bound symbol leaves, checked arithmetic, EQU dependencies; typed target event/operand kinds | Typed source instructions/operands; structured target memory operands; full source provenance; remove remaining textual interpretation between passes |
 | 4. Correct 8080 instruction behavior | Partial | 78 mnemonic fixtures, CPU diagnostic, arithmetic cases, PSW/DAA checks, both targets | Explicit instruction/operand/flag coverage matrix; fill untested combinations and boundary cases; distinguish executed checks from emitted-byte checks and hardware-only behavior |
-| 5. Complete BDOS 2.2 to CP/M-86 | Early | Twenty-seven native lowering entries, including search/random operations | Implement and validate remaining 12 source functions or document required explicit ports; far-pointer and system-data consumers need representation-aware translation |
-| 6. Complete BDOS 2.2 to DOS 1.0 | Early | Thirteen direct service entries plus five proven opaque-FCB lowerings | Implement missing source semantics through native DOS operations; FCB layouts, statuses, user areas, attributes, drive policy and disk structures require explicit decisions, not call-number substitution |
+| 5. Complete BDOS 2.2 to CP/M-86 | Native entry set complete; semantic validation partial | 39 entry-point lowerings; 27/31 retain native far results with mandatory review diagnostics | Automatic pointer-consumer translation remains absent; finish state/device/zero-fill execution validation and real-program coverage |
+| 6. Complete BDOS 2.2 to DOS 1.0 | Early | Fifteen direct service entries plus nine validated FCB lowerings | Implement missing source semantics through native DOS operations; FCB layouts, statuses, user areas, attributes, drive policy and disk structures require explicit decisions, not call-number substitution |
 | 7. Native DOS 1.0 operation support | Pending | Target version and local reference sources identified | Inventory native services; define source representation for DOS-only operations; verify each entry against DOS 1.0 rather than assuming later-version behavior |
 | 8. Additional source readers | Partial | Intel ASM plus M80 8080 subset with conditions/includes/macros/LOCAL/repetition/EXITM/text operators/string conditions | M80/MAC remaining expression/word-arithmetic semantics/pass conditions/relocation; RMAC; COM decoding with code/data and entry annotations |
 | 9. Additional assembler emitters | Implemented; validation expanding | Four flavors; three legacy emitters pass CPU, memory/location, alignment, console and FCB comparisons on both OS targets | Arithmetic matrix complete; broaden real-program acceptance tests |
@@ -46,8 +47,9 @@ emulation of a CP/M-80 machine identity.
    translation strategy before enabling corresponding calls.
 2. Remaining console/device and disk/user services; pointer-returning calls and
    programs that inspect operating-system structures need explicit handling.
-3. Finish the typed source representation and complete OS-operation annotations
-   so recognition is not limited to an immediately preceding MVI C, constant.
+3. Finish typed source operands and extend OS-operation analysis to
+   broader memory-loaded selectors, saved registers and explicit subroutine effects.
+   Dedicated DS 1 selectors now have bounded candidate recognition and runtime guards.
 4. Expand behavior tests and translate selected real programs, using their
    failures to prioritize verified gaps.
 5. Add the remaining input and output formats independently.
@@ -229,7 +231,7 @@ need native source-aware translation work, not a compatibility runtime.
   and unknown/clobbering instructions. Tiny BASIC's omitted restart bodies and
   return-address/inline-data conventions remain separate blockers.
 - Native CP/M-86 buffered console input and native input status on both targets
-  are implemented. At that milestone coverage was 23/39 CP/M-86 and 12/39 DOS. DOS buffered
+  are implemented. At that milestone coverage was 24/39 CP/M-86 and 12/39 DOS. DOS buffered
   input needs buffer adaptation; its different terminator capacity is not ignored.
 
 The four workstreams advanced together; interpreter execution, arbitrary region
@@ -432,3 +434,182 @@ resolver unit test and dispatch/FCB paths passed sanitizer checks. Separated FCB
 setup also executes through all four DOS emitters. Device calls assemble in all
 eight combinations but remain execution-unverified. VTL-2 measurements are
 unchanged; its reference still passes and xlt88 still exceeds the fixed boundary.
+
+## VTL-2 execution milestone
+
+Unchanged VTL-2 now fits its fixed 0800h variable boundary and passes the
+reference transcript on CP/M-86 through NASM, ASM86, MASM 3 and RASM-86:
+startup, 123+456=579, assignment A=7, A*6=42, subtraction=667,
+wide multiplication=65025, division=257, 16-bit wrap=0, and exit. The source and xlt86
+reference hashes remain unchanged. This establishes the tested transcript,
+not exhaustive language or script-file functionality. DOS remains blocked by
+unproved default-FCB handling. See vtlbench.md for each target's actual result.
+
+General changes responsible for this milestone:
+
+- Owned per-record flag-liveness masks, with conservative unknown edges and
+  returns, track individual 8080 flags across direct branches and callee inputs.
+- CPU lowering omits only proven-dead flag maintenance. Native word INC/DEC
+  retain carry, and native ADD implements DAD when other flags are dead.
+- AND-immediate masks with bit 3 set use the constant 8080 auxiliary-carry result.
+- Safe adjacent word-step sequences share a canonical saved flag image.
+- Proven short unconditional jumps are explicit in the legacy emitters;
+  conservative instruction-size bounds now account for short register forms.
+
+Reader/auxiliary input (3) now has native lowering on both targets and assembly
+checks in all eight combinations; device execution remains unverified. CP/M-86
+login-vector (24) passes native execution through all four emitters, checking
+both low and high bitmap bits. Lowering counts are 29/39 CP/M-86 and 19/39 DOS.
+No DOS login-vector semantics have been invented.
+
+Quality review consolidated flag analysis into one documented, immutable-input
+interface, removed superseded helpers/state, reviewed event ownership and range
+proofs, and added isolated graph/PSW tests. The AND matrix adds 8,192 result/PSW
+cases, distinct from the existing 70,400-case arithmetic matrix.
+
+Final validation for this batch: the frozen implementation passed the full
+regression, including 70,400 arithmetic and 8,192 AND/PSW cases, all existing
+file/API suites, and four-emitter CP/M-86 login-vector tests. The extended VTL-2
+reference comparison passed on all four CP/M-86 emitters and is now included in
+`make test` as a required acceptance gate. Focused flag/branch/AND sanitizer
+runs, isolated ownership/graph sanitizer checks, strict warning-free compilation
+and static analysis of flags.c/shrink.c passed. Final code review checked flag
+read/write contracts, unknown-edge conservatism, conditional-call paths, AH
+ownership during coalescing, and assembler range bounds. Generated test binaries
+are excluded from source changes.
+
+## Script acceptance and additional native services
+
+Unchanged VTL-2 and its unchanged xlt86 reference now agree on empty, missing,
+stored-program, multi-record and Ctrl-Z-terminated script files, including a
+CR/LF record-boundary split. All four CP/M-86 emitters pass `tests/vtlscr.py`.
+DOS VTL-2 remains blocked by default-FCB representation and field-use proof.
+
+`fcbaddr.c` separates straight-line DE address discovery (including LXI H/XCHG)
+from whole-program metadata auditing. Default addresses 005Ch/006Ch are now
+recognized and diagnosed precisely; recognition alone does not authorize
+conversion. Independent analysis tests and four-emitter file-copy tests cover
+this boundary.
+
+CP/M-86 adds attributes (30), user area (32), drive protection (28) and read-only
+bitmap (29). DOS adds audited random read (33) and set random record (36).
+Current lowering coverage is 33/39 CP/M-86 and 21/39 DOS, not a claim of complete
+execution coverage. Attribute read-only changes, zero read-only bitmap, DOS
+bookmarks/repeated reads/extent crossing/padding/EOF execute on all four emitters.
+User/protection state and DOS sequential continuation after a random read remain
+explicitly unverified on the installed emulator; see api.md for strict checks.
+
+Validation: the full `make test` gate passed after these service additions,
+including 70,400 arithmetic cases, 8,192 AND/PSW cases, existing file/API tests,
+new random/protection tests and four-emitter VTL-2 script/reference comparisons.
+Strict C99 warning checks, Clang static analysis of the changed C modules and
+ASan/UBSan execution of both new suites passed. `make corpus` was refreshed;
+no previously blocked real program is reported as newly executing.
+
+## Native default-FCB milestone
+
+The agreed native-memory boundary removes the DOS VTL-2 blocker without a
+compatibility runtime or source-specific changes. The first FCB uses DOS PSP
+storage directly. Explicit incompatible field accesses are diagnosed by a small
+independent pass; arbitrary computed memory sees native target structures.
+This replaces the earlier requirement to prove that an interpreter can never
+access OS metadata. It does not weaken the private-FCB relocation audit.
+
+Unchanged VTL-2 passes interactive calculations and all five script-file cases
+on DOS through NASM, ASM86, MASM 3 and RASM-86. The original xlt86 reference
+remains the baseline; only CP/M's additional final warm-boot CR/LF is excluded
+from the DOS comparison. Both targets are now required benchmark gates.
+Second default FCBs, mixed default/private file objects and explicit incompatible
+metadata accesses remain diagnosed. Service counts remain 33/39 and 21/39;
+this milestone expands usable programs rather than adding service numbers.
+
+Validation for this milestone: both-target/four-emitter VTL-2 interactive and
+script comparisons passed, alongside default-FCB positive/negative cases,
+private FCB copy and random-record regressions, service-set tests, interface and
+address-analysis tests, and the refreshed corpus. Strict C99 compilation,
+Clang analysis and focused ASan/UBSan runs passed. The CPU emitter was unchanged;
+the previously passed full arithmetic matrix was not rerun for this analysis-only
+change. Test fixtures preserve the original examples and xlt86 reference.
+
+## Earlier batch: WASH reference and three native service additions
+
+The supplied patched WASH15 reference now has a repeatable acceptance gate:
+missing-file handling, startup/exit, browsing, help and viewing. Fixture files
+remain unchanged. Original-source translation is still blocked, separately
+recorded in wash.md: memory-loaded service selection and disk-reset semantics
+on CP/M-86; DOS also needs directory/FCB representation work. The reference's
+interrupt-enable patch is a deliberate policy change, not an automatic CPU
+translation rule. No WASH-specific source patch or translator exception was added.
+
+DOS random write (34) and file size (35) now have native lowering, direct reads
+of compatible random-record fields, and all-four-emitter execution tests on
+private/default FCBs. Tests check repeated overwrites, extent crossing, missing
+files, rounded sizes and the third count byte. CP/M-86 selected-drive reset (37)
+has native lowering and all-four-emitter assembly validation; emulator support
+still blocks state execution. Counts at that stage were 34/39 CP/M-86 and 23/39 DOS.
+
+Quality changes share the supported FCB service set between analysis and
+lowering, and resolve arithmetic BDOS aliases consistently. Expression-based
+field reads preserve relocatable symbol identities; numeric-address shortcuts,
+incompatible writes and boundary-crossing reads remain rejected. New tests
+exercise `BDOS EQU 5+0` through default and private storage paths.
+
+Final validation: `make test` passed for this batch, including 70,400 arithmetic
+cases, 8,192 AND/PSW cases, all new service tests, both-target/four-emitter VTL-2
+interactive/script acceptance and five WASH reference scenarios. Strict C99
+warning checks, Clang static analysis and focused ASan/UBSan runs passed.
+The corpus report was regenerated. CP/M-86 reset state and DOS allocation-error
+execution remain explicitly unverified; no WASH translated execution is claimed.
+
+## Guarded selectors, reset and WASH acceptance
+
+Memory-loaded service candidates come from known direct stores to a dedicated
+DS 1 cell, independent of program and symbol names. They are not alias proofs:
+every candidate, including a singleton, is checked at runtime. An unmatched
+value terminates through the native target exit, with that limitation diagnosed
+at translation time. Unknown direct stores and unsupported candidate services
+remain errors. Guarded facts cannot authorize DOS FCB representation conversion.
+
+BDOS 13 now uses native reset, drive selection, DMA and search on both targets.
+Tests cover repeated calls, A selection, DMA 0080h, ordinary/$-prefixed files,
+result registers and unchanged file contents across all eight combinations.
+Physical media and read-only state remain unverified. CP/M-86 7/8 lower to native
+IOBYTE calls and assemble with all emitters; routing-state execution is unverified.
+
+Unchanged WASH15 matches five complete reference transcripts (missing file,
+exit, browse, help and view) on all four CP/M-86 emitters. DOS remains blocked
+by FCB representation analysis. Copy/delete/rename and device scenarios remain
+to test. Its original interrupt-disable policy is preserved; emulator transcript
+agreement does not validate real-hardware interrupt behavior. Difficult semantic
+ports remain explicit post-translation work, never application-name heuristics.
+
+Validation: the full `make test` gate passed, including 70,400 arithmetic and
+8,192 AND/PSW cases and both VTL-2 acceptance suites. A subsequent correction
+made the reset search cover all CP/M extents/modules; reset (eight combinations)
+and WASH (four emitters, five scenarios) were rerun successfully on the final
+normal and ASan/UBSan builds. Strict C99 compilation and Clang analysis passed.
+The corpus was refreshed; WASH now assembles in 4/8 combinations. Its execution
+is measured separately by tests/wash.py. See porting.md for the manual-review
+checklist, especially implicit page alignment and segmented-pointer assumptions.
+
+## Native entry completion and reference comparison
+
+BDOS 27/31 now emit their native ES:BX results, with diagnostics and assembly
+comments requiring pointer-consumer review. Four-emitter ABI tests use explicit
+segment-aware target adjustments and compare against direct native calls.
+This completes the native entry set, not automatic translation of every source
+memory contract. No application-name heuristic or implicit segment switch was
+added. The previous rule excluding diagnostic-only entries still applies:
+these calls now emit and execute real native operations, but their consumer
+port requirement is tracked separately from entry coverage.
+
+WASH's five exact transcript comparisons now also record CMD sizes relative to
+the supplied reference. DISK7's supplied reference has four repeatable scenarios
+(exit, browse, length and view), while unchanged translation still diagnoses
+two dynamic selectors and CP/M 3 function 46. Its 27/31 consumer warnings remain
+visible. There is no xlt88 DISK7 executable comparison yet. See diskref.md.
+
+Regression policy: retain independent CPU/API/parser/emitter tests and add
+reference behavior comparisons. Raw assembly differences and CMD size are
+review/efficiency evidence, not semantic equivalence tests. Patched references
+must identify deliberate policy changes, especially interrupt handling.

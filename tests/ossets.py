@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory() as directory:
             print(target,flavor,'both service-set paths and register-copy execution passed',flush=True)
     # A loop grows beyond the bounded set; no guessed dispatcher is emitted.
     overflow = " org 100h\n mvi c,1\nloop: inr c\n jnz loop\n call 5\n end\n"
-    for text in (source.replace('mvi a,2','lda msg'), source.replace('mvi a,2','mvi a,13'), overflow):
+    for text in (source.replace('mvi a,2','lda msg'), source.replace('mvi a,2','mvi a,38'), overflow):
         (work/'bad.80').write_text(text.replace('CHOICE','1'))
         (work/'out.asm').write_text('preserve')
         result = subprocess.run([str(exe),'--target=cpm86',str(work/'bad.80'),str(work/'out.asm')],capture_output=True)

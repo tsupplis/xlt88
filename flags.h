@@ -3,8 +3,16 @@
 
 #include "dialect.h"
 
-/* True only when a straight-line successor overwrites every 8080 flag
- * before any possible observation. Borrows immutable source records. */
-int flags_dead_after(const source_program_t *, size_t);
+enum {
+	flag_carry = 1, flag_auxiliary = 2, flag_zero = 4,
+	flag_sign = 8, flag_parity = 16, flag_all = 31
+};
+
+/* Return an owned array of live-after masks, indexed by original source
+ * record. A clear bit proves that flag unobservable before replacement.
+ * The source is borrowed and unchanged. Unknown edges and returns retain
+ * all flags. On allocation failure, return zero and set output to NULL.
+ * The caller releases the array with free(). No OS/emitter dependency. */
+int flags_live_plan(const source_program_t *, unsigned char **);
 
 #endif

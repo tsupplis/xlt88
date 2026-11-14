@@ -6,6 +6,7 @@ The table records current translation and the work required for each call.
 
 References
 
+- [Microsoft MS-DOS Encyclopedia, system calls](https://www.pcjs.org/documents/books/mspl13/msdos/encyclopedia/section5/)
 - [CP/M BDOS system calls](https://www.seasip.info/Cpm/bdos.html)
 - Local CP/M-86 kernel, `cpm86-kernel/bdos.a86`, dispatch table `IXMAIN`
 - Local IBM PC DOS 1.00 `IBMDOS.COM`, interrupt entry and dispatch table
@@ -16,28 +17,29 @@ References
 | --- | --- | --- | --- |
 | 0 | Terminate | Implemented | Implemented via INT 20h |
 | 1, 2, 9 | Console input, output, string | Implemented | Implemented |
-| 3 | Reader input | Native device call to verify | AH=03h, compare device semantics |
+| 3 | Reader input | Native lowering; all emitters assemble; device execution unverified | Native AH=03h; byte result copied to A/L; device execution unverified |
 | 4, 5 | Punch/auxiliary and list output | Native lowering; all emitters assemble; device execution unverified | Native AH=04h/05h lowering; all emitters assemble; device execution unverified |
 | 6 | Direct console I/O | Implemented; FF polls input, FE output uses function 2 | Implemented via AH=06h, result copied to A and L |
-| 7, 8 | Get/set IOBYTE | Native calls to verify | Port device selection explicitly |
+| 7, 8 | Get/set IOBYTE | Native calls; four emitters assemble, routing-state execution unverified | Port device selection explicitly |
 | 10 | Buffered input | Implemented; empty/full-capacity input and guard byte tested | Pending: DOS maximum includes its CR terminator; do not pass a CP/M-sized buffer unchanged |
 | 11 | Input status | Implemented; native status result | Implemented via AH=0Bh, result copied to A and L |
 | 12 | BDOS version | Implemented | Port the version-dependent branch explicitly |
-| 13 | Reset disks | Pending: compare boot/current-drive, DMA and reset-result semantics | Pending: AH=0Dh alone does not reproduce the CP/M reset contract |
+| 13 | Reset disks | Native reset/select A/DMA/search sequence; execution tested | Native reset/select A/DMA/search sequence; execution tested |
 | 14 | Select drive | Implemented via native function 14 | Implemented via AH=0Eh; native drive count is not a CP/M status |
-| 15, 16, 22 | Open/close/create | Implemented | Implemented for proven opaque FCB uses; safe create probe |
+| 15, 16, 22 | Open/close/create | Implemented | Audited private or first-default FCB; safe create probe |
 | 19, 23 | Delete/rename | Implemented; success/missing-file tests | Implemented through native name fields; success/missing/delete-wildcard tests; rename collision execution unverified |
-| 17, 18 | Directory search | Implemented; wildcard/DMA entries/end-of-search tested | AH=11h–12h, consume native DOS search results |
-| 20, 21 | Sequential read/write | Implemented; translated copies through 260 records, EOF and A=L checks | Implemented for proven opaque FCB uses; padded partial-read status handled |
-| 24 | Login vector | Native word result to verify | Port drive enumeration explicitly |
+| 17, 18 | Directory search | Implemented; wildcard/DMA entries/end-of-search tested | Pending: native DOS search-result representation needs translation |
+| 20, 21 | Sequential read/write | Implemented; translated copies through 260 records, EOF and A=L checks | Audited private or first-default FCB; padded partial-read status handled |
+| 24 | Login vector | Implemented; native BX maps to source HL; low/high bitmap execution checks | Port drive enumeration explicitly |
 | 25 | Current drive | Implemented | Implemented via AH=19h |
 | 26 | Set DMA address | Implemented for the current DMA segment | Implemented via AH=1Ah (DTA) |
-| 27, 31 | Allocation map, disk parameter block | Far pointer. Port consumers to use segment and offset explicitly | Port allocation and geometry consumers to the FAT interface |
-| 28, 29 | Write-protect drive, read-only vector | Native calls to verify | Port write-protection policy explicitly |
-| 30 | Set file attributes | Verify native FCB attribute bits | Port attribute operations explicitly |
-| 32 | Get/set user area | Verify native user number semantics | Port user-area naming or directory policy explicitly |
-| 33–36 | Random read/write, file size, set random record | Implemented; extent crossing, size, position and EOF tested | AH=21h–24h, adapt native DOS FCB record fields |
-| 37 | Reset selected drives | Verify drive bitmap and results | Port selected-drive reset behavior explicitly |
+| 27, 31 | Allocation map, disk parameter block | Native ES:BX result emitted and ABI tested; explicit pointer-consumer port review required | Port allocation and geometry consumers to the FAT interface |
+| 28, 29 | Write-protect drive, read-only vector | Native lowering; zero bitmap executed; stateful protection execution unverified | Port write-protection policy explicitly |
+| 30 | Set file attributes | Native lowering; read-only set/clear and missing file tested; system/archive execution unverified | Port attribute operations explicitly |
+| 32 | Get/set user area | Native lowering and assembly tested; user-state execution unverified | Port user-area naming or directory policy explicitly |
+| 33, 36 | Random read, set random record | Implemented; position and EOF tested | Audited private or first-default FCB; bookmarks, extent crossing, repeat reads, partial-record padding and EOF tested; sequential continuation execution unverified |
+| 34, 35 | Random write, file size | Implemented; extent crossing and size tested | Audited private or first-default FCB; random overwrite and rounded 24-bit size tested; allocation-error execution unverified |
+| 37 | Reset selected drives | Native bitmap reset; all emitters assemble; state execution unverified | Port selected-drive reset behavior explicitly |
 | 38, 39 | Reserved in CP/M 2.2 | Reserved | Reserved source calls |
 | 40 | Random write with zero fill | Native lowering and emission tested; execution blocked by installed emulator | Port zero filling explicitly. DOS AH=28h is block write |
 
@@ -146,10 +148,24 @@ checks A/B/C selection and function 25's A=L result on all eight combinations,
 then verifies that zero-drive name records affect files on the selected drive.
 Distinct temporary A/B/C mappings and untouched files detect selection mistakes.
 
-Function 13 remains blocked. The supplied CP/M-86 MRSDSY resets login/read-only
-vectors and selects CURDRV; it does not itself reset the DMA offset. This needs
-reconciliation with the CP/M-80 reset contract, as does DOS disk flush. No
-substitute reset state or guessed return value is emitted.
+Function 13 composes native reset, select A, set DMA and directory search.
+The CP/M 2.2 source (`func13` and `initial2` in
+`~/Projects/CPM/sourcebundles/cpm22src_unix/os3bdos.asm`) establishes drive A,
+DMA 0080h and A=FFh if a current-user filename starts with `$`, otherwise zero;
+the user number is unchanged. CP/M-86 MRSDSY alone does not establish that
+contract. The generated search uses extent/module wildcards on CP/M-86; DOS
+uses an extended native FCB with hidden/system attribute mask 6. A private
+128-byte search buffer protects the program's old DMA area, then DMA is set
+to 0080h. The result is returned in A=L. No substitute filesystem state is kept.
+`tests/allreset.py` exercises repeated calls, drive/DMA/results and untouched
+files on all eight emitter/OS combinations. Native read-only reset state and
+physical media behavior remain unverified.
+
+CP/M-86 functions 7/8 use native IOBYTE get/set with ES preserved. The kernel
+routes these to BIOS VGTIOB/VSTIOB. `tests/iobyte.py` assembles all four flavors;
+`CPM_IOBYTE=1` additionally requires routing-state execution on a capable runner.
+The current emulator cannot validate it. DOS device selection remains an
+explicit port rather than a synthetic IOBYTE variable.
 
 ## Auxiliary and list output
 
@@ -180,3 +196,122 @@ DOS opaque-FCB services still require the separate whole-program FCB audit.
 Mixed service sets do not bypass that audit. An FCB address may now be loaded
 before intervening proven DE-preserving register moves, immediate loads or NOPs;
 control transfers and possible pointer exposure remain barriers.
+
+## Reader input and login vector
+
+Reader input (3) uses native INT E0h or DOS AH=03h/INT 21h. DOS AL is mirrored
+to BL for the source A/L convention. The supplied CP/M-86 MREDER/BTPRST path
+and DOS READER/AUXIN path provide the native contracts. Native device selection
+and interruption policy apply; no CP/M IOBYTE emulation is introduced on DOS.
+`tests/devices.py` assembles this call but does not claim hardware execution.
+
+CP/M-86 function 24 uses MRTLIV/WDPRST's BX login bitmap, already the translated
+HL pair. `tests/login.py` executes all four emitters with mapped A/B/C/P drives
+and checks bits in both bytes. DOS has no matching native login-vector contract
+in this implementation, so its source function 24 remains explicitly unsupported.
+
+## Audited DOS random reads
+
+Functions 33 and 36 use DOS AH=21h and AH=24h respectively, available since
+DOS 1.0 (Microsoft MS-DOS Encyclopedia, section V). The existing whole-program
+opaque-FCB audit applies: dedicated storage, bounded name initialization, no
+source access to repurposed metadata. Function 36 derives the random position
+from native sequential fields; function 33 returns A=L and normalizes DOS
+partial-record status 3 to CP/M success, retaining the zero-padded record.
+Function 36 defines no byte return value. Identifiable incompatible field accesses remain rejected. Private FCBs use
+the strict storage audit; the first default FCB uses the native-memory contract
+described below.
+
+`tests/dosrand.py` executes bookmarks, repeated reads, extent crossing, padding,
+and EOF through every emitter. DOS requires random read to set the sequential
+position without incrementing it. The installed emulator leaves that position
+unchanged; the local DOS kernel FINRND/SETNREX and Microsoft documentation agree
+on the native contract. `DOS_RSEQ=1` enables the strict continuation test on a
+conforming runner. No workaround is added to generated code.
+
+## Native attributes, users and drive protection
+
+CP/M-86 functions 28/29 use MWPDSK/MGTROV: protect the current drive and return
+the read-only bitmap in BX (source HL). `tests/protect.py` executes the zero
+bitmap case and assembles the stateful case through all emitters. The installed
+emulator lacks protection state; `CPM_PROT=1` enables the stateful check.
+Function 30 tests read-only attribute set/clear and missing-file failure; host
+files do not verify system/archive bits. Function 32 assembles query/select/
+restore; `CPM_USER=1` requires a runner maintaining native user-area state.
+
+## First default FCB and native memory
+
+DOS lowering accepts the first default FCB at 005Ch for functions 15, 16,
+20, 21, 22 and 33–36. DOS provides its storage through 007Fh; the command
+name prefix is compatible, so no copy, shadow table or runtime dispatcher is
+needed. The second default FCB and mixed default/private file calls remain
+unsupported in this path because their storage relationships need analysis.
+
+Explicit metadata references are diagnosed, including word accesses crossing
+from the name prefix into metadata, arithmetic aliases and straight-line
+register-derived addresses. Arbitrary runtime addresses see native target
+memory. This is not a claim to detect every alias across calls or control-flow
+joins, nor to preserve CP/M structures for scripts that inspect raw memory.
+Private FCB relocation retains the stricter whole-program audit.
+
+Unchanged VTL-2 now passes interactive and script-file acceptance on DOS with
+all four emitters. Script output matches the CP/M-86 xlt86 reference exactly
+apart from CP/M's additional final warm-boot CR/LF. Tests include stored programs,
+empty/missing files, multi-record scripts and Ctrl-Z termination.
+
+## Random write, file size and selected-drive reset
+
+DOS functions 34/35 use native AH=22h/23h. Random write retains the native
+bookmark and maps DOS allocation failure 1 to CP/M random-write failure 2.
+DOS does not distinguish CP/M directory-full status 5 from other allocation
+failure; this detail is not reconstructed. Disk-full/error-path execution is
+unverified. Sequential continuation after random write shares the installed
+emulator limitation described for random read; `DOS_RSEQ=1` enables its strict
+check in `tests/dosmore.py`. Repeated writes, actual host-file contents and extent crossings
+are tested through all four emitters with private and first-default FCBs.
+
+File size explicitly establishes a 128-byte record length, including unopened
+FCBs. R0..R2 are cleared before the native lookup so a missing file retains a
+zero count as in the CP/M kernel. DOS's AL status is mirrored to L; CP/M 2.2
+file size does not define that byte result. Direct reads of the three-byte
+random field are supported; private objects require a relocatable object-plus-
+constant expression and sufficient source storage. Boundary-crossing reads
+and incompatible metadata writes remain diagnosed. Tests cover zero length,
+partial records, missing files and counts exceeding 65535, without modifying
+input files. Source field writes and arbitrary random seeks are not newly enabled.
+
+CP/M-86 function 37 uses MRSTDV: the DX bitmap clears selected login and
+read-only bits, preserving unselected drives. `tests/reset.py` assembles a
+low/high-bit reset and current-drive preservation scenario with every emitter.
+Set `CPM_RESET=1` only on a runner supporting native drive-protection state;
+the installed emulator does not implement this call. No runtime substitute
+is generated.
+
+## Far-result entry points: 27 and 31
+
+Both calls now emit native INT E0h and retain ES:BX. The kernel dispatches
+27 to MGTALM and 31 to MGDPBA, returns the offset through OTPARA, and restores
+ES from CURSEG on exit. Restoring the caller's old ES would destroy the native
+pointer, so these two calls deliberately bypass the ordinary ES save/restore.
+No copy of the allocation map or DPB, synthetic near pointer or emulated OS
+memory is introduced.
+
+Each call emits a diagnostic and an assembly comment requiring manual review
+of pointer consumers. Existing source loads still use their normal segment;
+no ES override is inferred. Review all pointer copies, stack saves, arithmetic,
+memory dereferences and lifetimes across subsequent native calls. A new far
+result replaces the previous ES value; multiple live far pointers need an
+explicit segment-storage strategy. Other existing service wrappers preserve ES.
+
+`tests/farptr.py` exercises both native results through all four assemblers.
+Its explicit test-only target adjustment poisons incoming ES, reads through
+ES:BX, compares segment/offset/data with a repeated raw native call, and checks
+ES preservation through an ordinary console-status call. These checks validate
+the native ABI and the manual port boundary, not automatic source-pointer
+conversion or every real disk geometry. DOS continues to reject these calls.
+
+The assembly-only tests/bdosall.py fixture covers the full entry set through
+all four emitters. There are now 39/39 native CP/M-86 entry-point lowerings. Two of those (27/31)
+require pointer-consumer port review; this is not 39/39 automatic flat-memory
+source contracts or complete behavioral validation. Remaining execution limits
+in the table, including IOBYTE/protection/user state and zero fill, still apply.

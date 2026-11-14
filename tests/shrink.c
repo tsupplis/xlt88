@@ -32,9 +32,30 @@ fixture(int gap, int barrier, int backward, int folded)
 	assert(target_shrink(&program)); /* A second pass remains valid. */
 	target_destroy(&program);
 }
+/* Flag-image sharing must stop before any observer or AH modification. */
+static void
+flag_fixture(const char *second, int removed)
+{
+	target_program_t program = {0};
+	emitter_t out = target_builder(&program);
+	instruction(&out, "lahf", no_operand, no_operand);
+	instruction(&out, "inc", operand(operand_register, "bx"), no_operand);
+	instruction(&out, "sahf", no_operand, no_operand);
+	instruction(&out, "lahf", no_operand, no_operand);
+	instruction(&out, second, operand(operand_register, "cx"), no_operand);
+	instruction(&out, "sahf", no_operand, no_operand);
+	assert(target_shrink(&program));
+	assert((program.events[2].kind == output_line_end) == removed);
+	assert((program.events[3].kind == output_line_end) == removed);
+	assert(target_shrink(&program));
+	target_destroy(&program);
+}
+
 int
 main(void)
 {
+	flag_fixture("inc", 1);
+	flag_fixture("push", 0);
 	fixture(124, 0, 0, 1);
 	fixture(125, 0, 0, 0);
 	fixture(122, 0, 1, 1);
