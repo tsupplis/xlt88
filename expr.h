@@ -9,7 +9,8 @@ typedef enum expr_kind {
 } expr_kind_t;
 typedef enum expr_op {
 	expr_plus, expr_minus, expr_multiply, expr_divide, expr_modulo,
-	expr_and, expr_or, expr_xor, expr_left, expr_right, expr_complement
+	expr_and, expr_or, expr_xor, expr_left, expr_right, expr_complement,
+	expr_equal, expr_unequal, expr_less, expr_lequal, expr_greater, expr_gequal
 } expr_op_t;
 typedef struct expr {
 	expr_kind_t kind;

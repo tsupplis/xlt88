@@ -34,7 +34,7 @@ emulation of a CP/M-80 machine identity.
 | 5. Complete BDOS 2.2 to CP/M-86 | Early | Twenty-one native lowering entries, including search/random operations | Implement and validate remaining 18 source functions or document required explicit ports; far-pointer and system-data consumers need representation-aware translation |
 | 6. Complete BDOS 2.2 to DOS 1.0 | Early | Six existing entries plus five proven opaque-FCB lowerings | Implement missing source semantics through native DOS operations; FCB layouts, statuses, user areas, attributes, drive policy and disk structures require explicit decisions, not call-number substitution |
 | 7. Native DOS 1.0 operation support | Pending | Target version and local reference sources identified | Inventory native services; define source representation for DOS-only operations; verify each entry against DOS 1.0 rather than assuming later-version behavior |
-| 8. Additional source readers | Partial | Intel ASM plus M80 8080 subset with conditions/includes | M80 macros/pass and string conditions/relocation; MAC/RMAC; COM decoding with code/data and entry annotations |
+| 8. Additional source readers | Partial | Intel ASM plus M80 8080 subset with conditions/includes/macros/LOCAL/repetition/EXITM/text operators/string conditions | M80 remaining expression/word-arithmetic semantics/pass conditions/relocation; MAC/RMAC; COM decoding with code/data and entry annotations |
 | 9. Additional assembler emitters | Pending | NASM renderer; normalized 8080 branch | MASM 3, ASM86, DRASM86, with exact version contracts, assembler runs and binary/execution equivalence |
 | 10. Real-program validation | Partial | Hello World, Microcosm CPU diagnostic, focused generated programs and native copy examples | Inventory new examples by CPU/dialect/API requirements; translate representative interpreters/games; record blockers and observable behavior checks |
 
@@ -155,5 +155,31 @@ includes, malformed blocks, include cycles, included-source overwrite protection
 stale state after included content changes, normalized round trips, binary
 equivalence and included CP/M FCB source translated to DOS. Full regression and
 address/undefined-behavior sanitizer checks of the preprocessing tests pass.
-Next parser work: macro expansion with parameter and local-label semantics;
-pass/string conditions and relocatable module semantics remain pending.
+Basic MACRO/ENDM expansion now supports positional parameters, omitted and
+angle-grouped arguments, nested calls and unique LOCAL labels. Definitions own
+source text and provenance; expansion feeds the existing source IR. Tests compare
+assembled bytes against explicit source for both targets and cover local-label
+isolation, source/state round trips, included definitions, body-relative includes,
+DOS FCB analysis after expansion, skipped definitions and bounded recursion.
+The full strict-build regression and address/undefined-behavior sanitizer runs
+for both macro and preprocessing tests pass.
+REPT, IRP and IRPC blocks now support nesting and EXITM. Byte-equivalence
+fixtures cover both targets, nested exit scope, included exits, inactive blocks,
+zero counts, empty/list/character substitution and expansion limits. Counts use
+known absolute values in 0..65535; IRP lists are limited to 32 items. Nested
+parameter shadowing and LOCAL in anonymous blocks are explicitly diagnosed.
+Macro &, ! and % operators plus IFB/IFNB/IFIDN/IFDIF are now implemented.
+Tests compare assembled bytes on both targets and cover nested concatenation,
+quoted substitution, escaped punctuation/whitespace, absolute evaluation at nested
+calls, literal percent signs, malformed angle groups and included diagnostics.
+Percent output uses the existing default decimal radix and low-16-bit values.
+String comparisons preserve case and interior whitespace.
+Mutable SET now snapshots values at each emitted use, including macro/repetition
+and included source. Tests protect immutable names, forward-use diagnostics,
+register/string operands, state invalidation and downstream DOS FCB recognition.
+Word arithmetic/bitwise operators, HIGH/LOW and comparisons are implemented in
+the shared expression IR. A Tiny BASIC dispatch-table fixture verifies the
+multiplicative precedence of SHR. General arithmetic remains checked host-long
+arithmetic; full M80 word-overflow semantics are not claimed.
+Next parser work: NUL, .RADIX and the remaining dialect expression differences.
+Nested parameter shadowing, pass conditions and relocatable modules remain pending.

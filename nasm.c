@@ -5,7 +5,7 @@
 static void
 write_expr(FILE *out, const expr_t *tree)
 {
-	static const char *const operators[] = { "+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", "~" };
+	static const char *const operators[] = { "+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", "~", "=", "!=", "<", "<=", ">", ">=" };
 	switch (tree->kind) {
 	case expr_integer: case expr_string: fputs(tree->text, out); break;
 	case expr_location: fputs("($ - $$ + 100h)", out); break;
@@ -19,11 +19,13 @@ write_expr(FILE *out, const expr_t *tree)
 		fputc(')', out);
 		break;
 	case expr_binary:
+		if (tree->op >= expr_equal) fputs("((-", out);
 		fputc('(', out);
 		write_expr(out, tree->left);
 		fprintf(out, " %s ", operators[tree->op]);
 		write_expr(out, tree->right);
 		fputc(')', out);
+		if (tree->op >= expr_equal) fputs(") & 65535)", out);
 		break;
 	case expr_list:
 		write_expr(out, tree->left);

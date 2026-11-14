@@ -270,8 +270,14 @@ publication, but their final replacements are not one atomic transaction.
 `expr_t` has integer, string, symbol, location, unary, binary and list nodes.
 Symbol leaves own their preferred spelling and carry `symbol_id`. Operators
 have enum identities. The current grammar preserves the supported source
-subset: unary `+ - ~`; multiplicative `* / %`; additive `+ -`; shifts;
-bitwise AND (`AND` or `&`), XOR and OR, in that precedence order. Binary
+subset: unary `+ - ~`, HIGH/LOW extraction, multiplicative `* / % MOD SHL SHR`,
+additive `+ -`, comparisons `EQ NE LT LE GT GE`, word NOT, AND, OR/XOR.
+Existing symbolic shifts `<< >>` retain their earlier precedence below addition;
+word shifts bind with multiplication. Symbolic XOR retains its precedence above
+symbolic OR; word OR/XOR share precedence. NOT complements the low 16 bits,
+and relational nodes return 65535 for true and zero for false. HIGH/LOW/NOT
+lower to existing arithmetic nodes; comparisons have explicit enum identities.
+NASM and normalized source renderers preserve these semantics with parentheses. Binary
 operators are left associative. Parentheses override precedence. This is not
 a claim of complete MAC/RMAC expression compatibility. Evaluation uses checked
 host `long` arithmetic; unknown symbol/location values remain unresolved.
@@ -437,7 +443,64 @@ Conditions balance within each file; active END terminates the expanded input.
 Include cycles, excessive nesting and malformed conditions are diagnosed.
 The driver protects every included input from output/state-file overwrites.
 
-Macro expansion, pass/string conditions, SET and relocatable modules remain
-unsupported. Expression grammar and symbol identity retain the shared IR
+Macro expansion is a reader operation implemented by macro.c through macro.h.
+macro_define captures an owned body and original paths; macro_expand creates a
+separate source_program_t containing substituted text and reparsed statements.
+The M80 coordinator processes those records recursively through the same
+conditional/include pipeline, then frees them. macro_destroy frees definitions.
+No macro objects cross into CPU or OS lowering. source_record_t retains bounded
+original text for lexical substitution; semantic consumers use statement fields.
+
+Each invocation substitutes up to 32 parameters and allocates unique names for
+up to 32 LOCAL declarations. Deterministic generated names use a reserved
+__m80_ prefix; user symbol tokens in that namespace are rejected, including
+forward references. Locals therefore cannot silently bind to source symbols.
+Definition file/line provenance is retained on expanded body records; invocation
+labels retain their call-site provenance. This does not yet supply a complete
+expansion backtrace. Includes inside bodies resolve from the definition file.
+Expansion depth is limited to 32 and the existing output record cap applies.
+
+Repetition uses macro_block to capture a temporary owned body and
+macro_iteration to substitute one item without reinterpreting it as an argument
+list. The coordinator evaluates REPT counts and sequences IRP/IRPC values,
+processing each expansion through the same source pipeline. A shared expansion
+budget bounds even empty nested repetitions. Anonymous blocks and named macros
+share the depth limit; only named macros accept initial LOCAL declarations.
+Nested repetition parameter shadowing is diagnosed rather than guessed.
+
+EXITM records the active expansion depth. Included files propagate that exit;
+the owning macro or repetition consumes it. A repetition stops all remaining
+iterations, while its enclosing expansion continues. Expansion-local conditional
+state is discarded on exit. Substitution errors remain diagnostic records and
+are reported only when active, so discarded code cannot defeat an early exit.
+
+macro_actuals scans argument groups and escapes before splitting at commas.
+A macro_eval_t callback, injected by the M80 coordinator, resolves leading
+percent expressions against previously encountered absolute symbols. The macro
+module does not own the symbol environment. Decimal low-16-bit formatting is
+explicit; changing .RADIX is outside the current reader contract. Quoted/grouped
+literal arguments do not trigger percent evaluation.
+
+Ampersands remain in expanded source text so nested expansion can still find
+parameter boundaries. Quoted &parameter consumes the prefix when substituted.
+macro_join canonicalizes final statement symbol tokens for the shared expression
+parser, preserving quoted text and spaced expression operators. The canonical
+names are also used for symbol/state binding and normalized 8080 output.
+macro_condition validates required angle groups and compares their text without
+numeric evaluation. Original file/line locations survive these operations.
+
+SET is confined to M80 preprocessing. A mutable symbol stores a known 16-bit
+absolute value and cannot change into an immutable EQU/address definition.
+Assignments evaluate against the current environment. Before appending an
+ordinary statement, freeze_statement replaces mutable references in expression
+operands with numeric text, preserving register operands and strings. EQU values
+therefore snapshot SET dependencies too. The shared source IR, layout, target
+lowering and symbol-state file contain immutable expressions only. This also
+keeps mutable names out of the editable label/equate table; full source-order
+provenance remains on the emitted records. Forward or layout-dependent SET
+assignments are diagnosed rather than deferred.
+
+Nested macro definitions, pass conditions, NUL, .RADIX and relocatable
+modules remain unsupported. Expression grammar and symbol identity retain the shared IR
 contracts rather than claiming complete M80 compatibility. The M80 reference is:
 https://www.s100computers.com/Software%20Folder/Assembler%20Collection/Microsoft%20M80%20Manual.pdf

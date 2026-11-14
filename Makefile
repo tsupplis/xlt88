@@ -1,5 +1,5 @@
 PROG =	xlt88
-OBJS = m80.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o norm8080.o \
+OBJS = macro.o m80.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o norm8080.o \
 	osrecog.o trans.o emitter.o target.o nasm.o msdos.o cpm86.o
 PYTHON = python3
 
@@ -25,8 +25,8 @@ tests/iface: tests/iface.c ${OBJS}
 tests/expr: tests/expr.c expr.o expr.h
 	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/expr.c expr.o
 
-tests/readers: tests/readers.c dialect.o m80.o symbols.o layout.o expr.o dialect.h
-	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/readers.c dialect.o m80.o symbols.o layout.o expr.o
+tests/readers: tests/readers.c dialect.o macro.o m80.o symbols.o layout.o expr.o dialect.h
+	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/readers.c dialect.o macro.o m80.o symbols.o layout.o expr.o
 
 test: ${PROG} tests/iface tests/expr tests/readers
 	./tests/iface
@@ -34,6 +34,10 @@ test: ${PROG} tests/iface tests/expr tests/readers
 	./tests/readers
 	${PYTHON} tests/readers.py
 	${PYTHON} tests/preproc.py
+	${PYTHON} tests/macros.py
+	${PYTHON} tests/repeat.py
+	${PYTHON} tests/macops.py
+	${PYTHON} tests/setexpr.py
 	sh tests/coverage.sh
 	sh tests/smoke.sh
 	${PYTHON} tests/arith.py
@@ -59,3 +63,6 @@ fcb.o trans.o: fcb.h
 fcb.o: symbols.h dialect.h expr.h
 
 m80.o: dialect.h symbols.h expr.h
+
+macro.o m80.o: macro.h
+macro.o: dialect.h symbols.h

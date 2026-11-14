@@ -140,7 +140,11 @@ symbols_validate(const symbol_table_t *table, FILE *diagnostics)
 			    symbol_equal(name, "sp") || symbol_equal(name, "psw") ||
 			    symbol_equal(name, "and") || symbol_equal(name, "or") ||
 			    symbol_equal(name, "xor") || symbol_equal(name, "not") ||
-			    symbol_equal(name, "mod") || symbol_equal(name, "shl") || symbol_equal(name, "shr"))
+			    symbol_equal(name, "mod") || symbol_equal(name, "shl") || symbol_equal(name, "shr") ||
+			    symbol_equal(name, "high") || symbol_equal(name, "low") ||
+			    symbol_equal(name, "eq") || symbol_equal(name, "ne") ||
+			    symbol_equal(name, "lt") || symbol_equal(name, "le") ||
+			    symbol_equal(name, "gt") || symbol_equal(name, "ge"))
 				goto invalid;
 			for (j = 1; name[j]; ++j)
 				if (!isalnum((unsigned char)name[j]) && name[j] != '_')
@@ -186,7 +190,7 @@ append(text_buffer_t *out, const char *text)
 static void
 source_expression(text_buffer_t *out, const expr_t *tree)
 {
-	static const char *const operators[] = {"+", "-", "*", "/", "%", " AND ", "|", "^", "<<", ">>", "~"};
+	static const char *const operators[] = {"+", "-", "*", "/", "%", " AND ", "|", "^", "<<", ">>", "~", " EQ ", " NE ", " LT ", " LE ", " GT ", " GE "};
 	switch (tree->kind) {
 	case expr_integer: case expr_string: case expr_symbol: case expr_location:
 		append(out, tree->text);

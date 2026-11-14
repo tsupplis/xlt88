@@ -137,9 +137,63 @@ Diagnostics retain the original filename and physical line after expansion.
 
 Conditional blocks must balance within each file. Include cycles are rejected;
 nesting is limited to 32 source files and 64 conditions per file. No implicit
-filename extension or include search path is supplied. Macro expansion,
-pass/string conditionals, mutable SET symbols, relocatable modules and Z80 mode
-are explicitly unsupported. This is a flat
+filename extension or include search path is supplied.
+
+`name MACRO parameters` through `ENDM` supports up to 32 positional parameters,
+comma-separated actual arguments, angle-grouped argument lists, omitted arguments
+as empty text, and nested calls (maximum depth 32). Definitions must precede use.
+`LOCAL` declarations at the start of a body provide up to 32 unique labels per
+call. The `__m80_` symbol prefix is reserved for these generated names. Ordinary
+tokens are substituted case-insensitively; quoted strings and comments retain
+literal text unless a quoted parameter is explicitly prefixed by `&`. Double-semicolon comments are omitted from expansion. Macro-body
+conditions and includes are processed after substitution, with includes relative
+to the definition file. Conditional blocks must balance within each expansion.
+Normalized output can be read back with the default Intel reader.
+
+`REPT count` repeats a block using a previously known absolute count in
+0..65535. `IRP name,<items>` substitutes each item (up to 32); `IRPC name,text`
+substitutes each character, with optional enclosing angle brackets. Empty IRP
+and IRPC inputs expand once with empty substitution. Blocks end at matching
+`ENDM` and may nest, including inside macros. `EXITM` stops the innermost
+macro/repetition, discarding its remaining iterations; outer expansion resumes.
+An inactive `EXITM` has no effect. The shared nesting limit is 32, with a total
+budget of 65536 macro calls/repetition iterations and 65536 output records.
+
+`LOCAL` remains restricted to the start of named macro definitions. Nested
+repetition parameters must have distinct names from enclosing parameters and
+locals; shadowing is diagnosed.
+
+Macro `&` separates adjacent substitution tokens, including through nested
+expansion; final statement names are joined before entering the shared IR.
+Within strings, `&parameter` inserts its actual text. Argument `!` protects the
+next character, including commas, semicolons and spaces. Leading `%expression`
+in a macro argument or IRP item evaluates a previously known absolute value
+at the call/iteration setup and supplies decimal text for its low 16 bits.
+An angle-grouped or escaped percent sign remains literal. `.RADIX` is not yet
+supported, so decimal is the only output radix for this operator.
+
+`IFB`/`IFNB` test an angle-delimited argument for zero/nonzero text length.
+`IFIDN`/`IFDIF` compare two angle-delimited arguments exactly, including case,
+quotes and interior whitespace. Escapes and nested angle groups are accepted;
+unbracketed or extra arguments are diagnosed.
+
+`name SET expression` assigns a mutable 16-bit absolute value. Its expression
+must be resolvable from earlier definitions; subsequent assignments may refer
+to the previous value. Each emitted expression snapshots current SET values,
+including inside repetitions and includes. Register operands and quoted strings
+retain their original meaning. SET cannot redefine an EQU/address label or
+later become one. Mutable names are preprocessing state, not editable label
+entries in the `.sym` file.
+
+Expressions now accept `MOD`, `SHL`, `SHR`, `OR`, `XOR`, `NOT`, `HIGH`, `LOW`
+and `EQ`/`NE`/`LT`/`LE`/`GT`/`GE`. Word-form shifts bind with multiplication:
+`1234h SHR 8 + 128` is 146. Existing `<<`/`>>` spellings retain their earlier
+precedence. Comparisons return 65535 or zero; NOT complements the low 16 bits.
+General arithmetic retains the shared checked host-integer contract rather
+than emulating every M80 16-bit overflow rule.
+
+Nested macro definitions, pass conditionals (`IF1`/`IF2`), `NUL`, relocatable
+modules and Z80 mode remain unsupported. This is a flat
 8080 source subset, not complete MACRO-80 compatibility; expression grammar
 and symbol identity still follow xlt88's current contracts.
 
@@ -153,7 +207,8 @@ label convention remains in effect unless a colon explicitly marks a label.
 The driver in `xlt88.c` selects dependencies and owns streams. The pipeline is:
 
 - `dialect.c`: Intel/M80 lexical parsing into an owned `source_program_t`.
-- `m80.c`: M80 conditional assembly and includes with source provenance.
+- `m80.c`: M80 preprocessing order, conditional assembly and includes.
+- `macro.c`: owned macro definitions, argument substitution and local labels.
 - `norm8080.c`: optional 8080 source serialization (`--emit=8080`).
 - `osrecog.c`: conservative tracking of the BDOS function argument.
 - `symbols.c` and `state.c`: shared symbols and editable state.

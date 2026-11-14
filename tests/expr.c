@@ -36,6 +36,21 @@ main(void)
 	check("7%3", 1);
 	check("1<<4+1", 32);
 	check("~0", -1);
+	check("1234h SHR 8 + 128", 146);
+	check("1 SHL 3 + 1", 9);
+	check("10 MOD 3", 1);
+	check("1 OR 3 XOR 2", 1);
+	check("HIGH 1234h", 18);
+	check("LOW 1234h", 52);
+	check("HIGH -1", 255);
+	check("NOT 0", 65535);
+	check("NOT 1 EQ 1", 0);
+	check("1 EQ 1", 65535);
+	check("1 NE 1", 0);
+	check("1 LT 2", 65535);
+	check("1 LE 1", 65535);
+	check("2 GT 1", 65535);
+	check("2 GE 3", 0);
 	for (i = 0; i < sizeof(bad) / sizeof(bad[0]); ++i) {
 		expr_t *tree = expr_parse(bad[i], NULL, NULL, 0, &error);
 		assert(!tree && error);

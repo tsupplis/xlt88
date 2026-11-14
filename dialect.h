@@ -13,6 +13,7 @@ typedef struct statement {
 
 typedef struct source_record {
 	statement_t statement;
+	char text[255]; /* Original text for lexical macro substitution. */
 	const char *problem;
 	unsigned long line; /* Stable expanded-record ordinal for current passes. */
 	unsigned long origin_line;
@@ -32,6 +33,7 @@ typedef struct dialect {
 } dialect_t;
 
 int source_read(const dialect_t *, FILE *, const char *, source_program_t *);
+const char *m80_statement(const char *, statement_t *, int);
 int m80_raw_read(FILE *, source_program_t *);
 int m80_read_file(FILE *, const char *, source_program_t *);
 void source_report(FILE *, const source_record_t *, const char *);

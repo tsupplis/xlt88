@@ -13,8 +13,12 @@ space(char ch)
 static void
 copy_token(char *dest, const char *begin, const char *end)
 {
-	while (end > begin && space(end[-1]))
+	while (end > begin && space(end[-1])) {
+		const char *escape = end - 1;
+		while (escape > begin && escape[-1] == '!') --escape;
+		if ((end - 1 - escape) % 2) break;
 		--end;
+	}
 	memcpy(dest, begin, end - begin);
 	dest[end - begin] = '\0';
 }
@@ -64,11 +68,22 @@ parse_statement(const char *line, statement_t *stmt, int m80)
 		int label;
 		copy_token(token, start, p);
 		for (i = 0; token[i]; ++i) token[i] = tolower((unsigned char)token[i]);
+		if (m80) {
+			char *out = token;
+			for (i = 0; token[i]; ++i) if (token[i] != '&') *out++ = token[i];
+			*out = 0;
+		}
 		while (space(*after)) ++after;
-		label = *p == ':' || (start == line && *start && *start != ';' &&
-		    (!m80 || !known_operation(token) ||
-		    ((!strncmp(after, "equ", 3) || !strncmp(after, "EQU", 3)) &&
-		    (space(after[3]) || !after[3]))));
+		{
+			char following[256];
+			const char *end = after;
+			while (*end && !space(*end) && *end != ';') ++end;
+			copy_token(following, after, end);
+			for (i = 0; following[i]; ++i) following[i] = tolower((unsigned char)following[i]);
+			label = *p == ':' || (m80 && in_list("equ macro set", following)) ||
+			    (start == line && *start && *start != ';' &&
+			    (!m80 || (m80 != 2 && !known_operation(token))));
+		}
 		if (label) {
 			copy_token(stmt->label, start, p);
 			if (*p == ':') ++p;
@@ -86,13 +101,10 @@ parse_statement(const char *line, statement_t *stmt, int m80)
 
 	if (m80) {
 		if (!strcmp(stmt->opcode, ".z80")) return "M80 Z80 mode is unsupported; use 8080 source";
-		if (in_list("macro endm rept irp irpc exitm local", stmt->opcode))
-			return "M80 macro expansion is not implemented";
-		if (in_list("if1 if2 ifb ifnb ifidn ifdif", stmt->opcode))
+		if (in_list("if1 if2", stmt->opcode))
 			return "M80 conditional assembly is not implemented";
 		if (in_list("aseg cseg dseg common public extrn entry name .phase .dephase", stmt->opcode))
 			return "M80 relocation/module directives are not implemented";
-		if (!strcmp(stmt->opcode, "set")) return "M80 mutable SET symbols are not implemented";
 		if (in_list("title subttl page .list .xlist .8080", stmt->opcode)) {
 			if (stmt->label[0]) return "label on M80 listing or mode directive is unsupported";
 			if (in_list(".list .xlist .8080", stmt->opcode)) {
@@ -111,18 +123,24 @@ parse_statement(const char *line, statement_t *stmt, int m80)
 	while (space(*p))
 		++p;
 	start = p;
-	for (; *p; ++p) {
-		if (quote != '\0') {
-			if (*p == quote)
-				quote = '\0';
-		} else if (*p == '\'' || *p == '"') {
-			quote = *p;
-		} else if (*p == ';') {
-			break;
-		} else if (*p == '!') {
-			return "split instructions at ! before translation";
-		} else if (*p == ',' && comma == NULL) {
-			comma = p;
+	{
+		int literal = m80 && (!known_operation(stmt->opcode) ||
+		    in_list("macro local irp irpc ifb ifnb ifidn ifdif", stmt->opcode));
+		int angle = 0, arg_start = 1;
+		for (; *p; ++p) {
+			if (quote) { if (*p == quote) quote = 0; }
+			else if (literal && *p == '!') {
+				if (!p[1]) return "dangling ! in macro argument";
+				++p; arg_start = 0;
+			} else if (*p == '\'' || *p == '"') { quote = *p; arg_start = 0; }
+			else if (literal && *p == '<' && (angle || arg_start)) { ++angle; arg_start = 0; }
+			else if (literal && *p == '>' && angle) --angle;
+			else if (*p == ';' && !angle) break;
+			else if (*p == '!' && !literal) return "split instructions at ! before translation";
+			else if (*p == ',' && !angle) {
+				if (!comma) comma = p;
+				arg_start = 1;
+			} else if (!space(*p)) arg_start = 0;
 		}
 	}
 	if (quote != '\0')
@@ -130,7 +148,9 @@ parse_statement(const char *line, statement_t *stmt, int m80)
 
 	/* Data declarations pass their complete initializer list to NASM. */
 	if (comma != NULL && strcmp(stmt->opcode, "db") &&
-	    strcmp(stmt->opcode, "dw")) {
+	    strcmp(stmt->opcode, "dw") &&
+	    (!m80 || (known_operation(stmt->opcode) &&
+	    !in_list("macro local ifb ifnb ifidn ifdif", stmt->opcode)))) {
 		copy_token(stmt->first, start, comma++);
 		while (space(*comma))
 			++comma;
@@ -183,6 +203,7 @@ read_source(FILE *in, source_program_t *program, int m80)
 		memset(record, 0, sizeof(*record));
 		record->line = ++program->count;
 		record->origin_line = record->line;
+		strcpy(record->text, line);
 		record->problem = problem ? problem : parse_statement(line, &record->statement, m80);
 		if (!m80 && !record->problem && !strcmp(record->statement.opcode, "end")) break;
 	}
@@ -193,6 +214,12 @@ static int
 read_intel(FILE *in, source_program_t *program)
 {
 	return read_source(in, program, 0);
+}
+
+const char *
+m80_statement(const char *text, statement_t *statement, int operation)
+{
+	return parse_statement(text, statement, operation ? 2 : 1);
 }
 
 int

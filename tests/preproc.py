@@ -19,6 +19,7 @@ IF flag
 ELSE
  INCLUDE missing.inc
  bad MACRO
+ ENDM
  END
 ENDIF
 IF 0

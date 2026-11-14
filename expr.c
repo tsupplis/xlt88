@@ -73,11 +73,38 @@ binary_op(expr_parser_t *parser, expr_op_t *op, size_t *length)
 	case '%': *op = expr_modulo; return 6;
 	default: break;
 	}
+	if (word(p, "mod")) { *op = expr_modulo; *length = 3; return 6; }
+	if (word(p, "shl") || word(p, "shr")) { *op = word(p, "shl") ? expr_left : expr_right; *length = 3; return 6; }
+	if (word(p, "or")) { *op = expr_or; *length = 2; return 1; }
+	if (word(p, "xor")) { *op = expr_xor; *length = 3; return 1; }
+	{
+		static const char *const names[] = {"eq", "ne", "lt", "le", "gt", "ge"};
+		size_t i;
+		for (i = 0; i < 6; ++i) if (word(p, names[i])) {
+			*op = (expr_op_t)(expr_equal + i); *length = 2; return 4;
+		}
+	}
 	if (word(p, "and")) { *op = expr_and; *length = 3; return 3; }
 	return 0;
 }
 
 static expr_t *parse_binary(expr_parser_t *, int);
+
+/* Lower byte extraction and word NOT into the existing arithmetic IR. */
+static expr_t *
+with_constant(expr_parser_t *parser, expr_t *left, expr_op_t op, long value, const char *text)
+{
+	expr_t *tree = node(parser, expr_binary);
+	if (!tree) { expr_destroy(left); return NULL; }
+	tree->op = op; tree->left = left;
+	tree->right = node(parser, expr_integer);
+	if (tree->right) {
+		tree->right->integer = value;
+		tree->right->text = copy_span(text, strlen(text));
+		if (!tree->right->text) parser->error = "cannot allocate expression";
+	}
+	return tree;
+}
 
 static expr_t *
 parse_atom(expr_parser_t *parser)
@@ -88,7 +115,16 @@ parse_atom(expr_parser_t *parser)
 	skip_space(parser);
 	if (++parser->depth > 128) { parser->error = "expression nesting exceeds 128"; goto done; }
 	start = parser->cursor;
-	if (*start == '+' || *start == '-' || *start == '~') {
+	if (word(start, "high") || word(start, "low") || word(start, "not")) {
+		int high = word(start, "high"), complement = word(start, "not");
+		parser->cursor += high ? 4 : 3;
+		tree = complement ? parse_binary(parser, 4) : parse_atom(parser);
+		if (!tree) goto done;
+		tree = with_constant(parser, tree, complement ? expr_xor : expr_and,
+		    complement || high ? 65535 : 255, complement || high ? "65535" : "255");
+		if (high && !parser->error) tree = with_constant(parser, tree, expr_right, 8, "8");
+		if (complement && !parser->error) tree = with_constant(parser, tree, expr_and, 65535, "65535");
+	} else if (*start == '+' || *start == '-' || *start == '~') {
 		++parser->cursor;
 		tree = node(parser, expr_unary);
 		if (!tree) goto done;
@@ -249,6 +285,12 @@ expr_eval(const expr_t *tree, expr_lookup_t lookup, void *context, long location
 		if (a < 0 || b < 0 || b >= (long)(sizeof(long) * CHAR_BIT - 1)) return 0;
 		if (tree->op == expr_left && a > (LONG_MAX >> b)) return 0;
 		*value = tree->op == expr_left ? a << b : a >> b; return 1;
+	case expr_equal: *value = a == b ? 65535 : 0; return 1;
+	case expr_unequal: *value = a != b ? 65535 : 0; return 1;
+	case expr_less: *value = a < b ? 65535 : 0; return 1;
+	case expr_lequal: *value = a <= b ? 65535 : 0; return 1;
+	case expr_greater: *value = a > b ? 65535 : 0; return 1;
+	case expr_gequal: *value = a >= b ? 65535 : 0; return 1;
 	case expr_complement: return 0;
 	}
 	return 0;
