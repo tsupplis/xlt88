@@ -13,7 +13,7 @@ emit_named_8080(const source_program_t *program, const symbol_table_t *symbols, 
 		const statement_t *stmt = &renamed;
 		const symbol_t *label;
 		if (record->problem) {
-			fprintf(diagnostics, "xlt88:%lu: %s\n", record->line, record->problem);
+			source_report(diagnostics, record, record->problem);
 			return 0;
 		}
 		if (symbols) {

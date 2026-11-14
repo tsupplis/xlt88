@@ -126,10 +126,8 @@ ASM
         grep -Fq "unsupported 8080 restart vector: $vector" restart.err
     done
 
-    if "$root/xlt88" --target="$target" "$root/tests/copy.asm" copy.asm 2> copy.err; then
-        exit 1
-    fi
-    grep -F 'BDOS function 15 needs a native port' copy.err
+    "$root/xlt88" --target="$target" "$root/tests/copy.asm" copy.asm
+    nasm -Werror -f bin copy.asm -o copy.com
 
     cat > ambiguous.80 <<'ASM'
         mvi c, 2

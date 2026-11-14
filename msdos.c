@@ -48,9 +48,64 @@ bdos(const emitter_t *out, long function)
 	return 1;
 }
 
+static void
+file_int(const emitter_t *out, long function)
+{
+	instruction(out, "mov", operand(operand_register, "ah"), value(operand_immediate, function));
+	emit(out, output_line_end, NULL, no_operand, no_operand);
+	instruction(out, "int", value(operand_interrupt, 0x21), no_operand);
+	emit(out, output_line_end, NULL, no_operand, no_operand);
+}
+
+static void
+file_branch(const emitter_t *out, const char *op, const char *prefix, unsigned long site)
+{
+	instruction(out, op, operand(operand_internal_label, prefix), value(operand_immediate, site));
+	emit(out, output_line_end, NULL, no_operand, no_operand);
+}
+
+static void
+file_label(const emitter_t *out, const char *prefix, unsigned long site)
+{
+	emit(out, output_internal_definition, prefix, value(operand_immediate, site), no_operand);
+}
+
+static int
+file_call(const emitter_t *out, long function, unsigned long site)
+{
+	if (function != 15 && function != 16 && function != 20 && function != 21 && function != 22) return 0;
+	emit(out, output_comment, "statically translated CP/M FCB with opaque metadata", no_operand, no_operand);
+	emit(out, output_line_end, NULL, no_operand, no_operand);
+	if (function == 22) {
+		/* Never silently replace an existing file with DOS create. The
+		 * audited source cannot inspect metadata modified by this probe. */
+		file_int(out, 15);
+		instruction(out, "cmp", operand(operand_register, "al"), value(operand_immediate, 255));
+		emit(out, output_line_end, NULL, no_operand, no_operand);
+		file_branch(out, "je", "make", site);
+		file_int(out, 16);
+		instruction(out, "mov", operand(operand_register, "al"), value(operand_immediate, 255));
+		emit(out, output_line_end, NULL, no_operand, no_operand);
+		file_branch(out, "jmp", "fileret", site);
+		file_label(out, "make", site);
+	}
+	file_int(out, function);
+	if (function == 20) {
+		instruction(out, "cmp", operand(operand_register, "al"), value(operand_immediate, 3));
+		emit(out, output_line_end, NULL, no_operand, no_operand);
+		file_branch(out, "jne", "fileret", site);
+		instruction(out, "mov", operand(operand_register, "al"), value(operand_immediate, 0));
+		emit(out, output_line_end, NULL, no_operand, no_operand);
+	}
+	file_label(out, "fileret", site);
+	instruction(out, "mov", operand(operand_register, "bl"), operand(operand_register, "al"));
+	return 1;
+}
+
 const backend_t msdos_backend = {
 	.name = "msdos",
 	.bdos = bdos,
 	.exit_program = exit_program,
-	.stack_segment = NULL
+	.stack_segment = NULL,
+	.file_call = file_call
 };

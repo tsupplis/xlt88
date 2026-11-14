@@ -133,7 +133,9 @@ symbols_layout(const source_program_t *source, symbol_table_t *table, FILE *diag
 			const char *error;
 			item->expression = expr_parse(item->value, resolve, table, 0, &error);
 			if (!item->expression) {
-				fprintf(diagnostics, "xlt88:%lu: EQU expression: %s\n", item->line, error);
+				char message[320];
+				snprintf(message, sizeof(message), "EQU expression: %s", error);
+				source_report(diagnostics, &source->records[item->line - 1], message);
 				return 0;
 			}
 		}
@@ -143,7 +145,7 @@ symbols_layout(const source_program_t *source, symbol_table_t *table, FILE *diag
 		if (!colors) return 0;
 		for (i = 0; i < table->count; ++i) {
 			if (!visit_equ(table, table->items[i].expression, colors, 0)) {
-				fprintf(diagnostics, "xlt88:%lu: cyclic or excessively deep EQU dependency\n", table->items[i].line);
+				source_report(diagnostics, &source->records[table->items[i].line - 1], "cyclic or excessively deep EQU dependency");
 				free(colors);
 				return 0;
 			}

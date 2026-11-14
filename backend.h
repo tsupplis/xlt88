@@ -12,6 +12,8 @@ typedef struct backend {
 	/* If present, emit segment selection immediately before the CPU layer
 	 * emits MOV SP; no intervening instructions may be inserted. */
 	void (*stack_segment)(const emitter_t *);
+	/* Invoked only for a statically proven CP/M FCB use. */
+	int (*file_call)(const emitter_t *, long function, unsigned long site);
 } backend_t;
 
 extern const backend_t msdos_backend;

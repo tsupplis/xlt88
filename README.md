@@ -69,9 +69,14 @@ so it requires a source edit before automatic translation.
 | BDOS 1, 2, 9 | Set AH to the service number and use INT 21h | INT E0h with CL already set, saving and restoring ES |
 | BDOS 12 | Manual port | Return the native BDOS version |
 | BDOS 25, 26 | Get current drive and set DTA | Get current drive and set DMA offset |
+| BDOS 15, 16, 20–22 | Implemented for statically proven opaque FCB uses | Native open/close/read/write/create |
+| BDOS 19, 23 | Pending | Native delete/rename |
+| BDOS 17–18, 33–36 | Manual port | Native directory search and random-record operations |
+| BDOS 40 | Manual port | Native zero-fill call; execution not yet verified |
 | Transfer to 0, RST 0, or BDOS 0 | INT 20h | INT E0h with CL and DL set to zero |
 
-Other BDOS services, including FCB I/O, and ambiguous service numbers
+Other BDOS services, unproven DOS FCB uses,
+and ambiguous service numbers
 produce source-line errors for manual porting. Review register and flag
 dependencies against the native OS interface. Use an explicit warm boot
 for portable termination. RET remains a near return. On CP/M-86,
@@ -113,6 +118,26 @@ Operands can use Intel's `AND` expression operator, for example
 offsets in the flat image. The emitter escapes source labels so that
 names such as `CPU` can coexist with NASM keywords.
 
+### M80 reader subset
+
+```sh
+./xlt88 --dialect=m80 --target=cpm86 source.asm target.asm
+./xlt88 --dialect=m80 --emit=8080 source.asm review.asm
+```
+
+The M80 reader accepts the existing 8080 instruction/data syntax, known
+operations at column one, explicit labels with indentation, and `.8080`.
+`TITLE`, `SUBTTL`, `PAGE`, `.LIST` and `.XLIST` are retained as comments.
+Macro expansion, conditional assembly, includes, mutable SET symbols,
+relocatable modules and Z80 mode are explicitly unsupported. This is a flat
+8080 source subset, not complete MACRO-80 compatibility; expression grammar
+and symbol identity still follow xlt88's current contracts.
+
+Both readers handle LF, CRLF, bare CR, final lines without a newline and the
+CP/M Ctrl-Z end marker. Physical source line numbers are preserved. Embedded
+NUL bytes and lines exceeding 254 characters are diagnosed. Intel's column-one
+label convention remains in effect unless a colon explicitly marks a label.
+
 ## Code and tests
 
 The driver in `xlt88.c` selects dependencies and owns streams. The pipeline is:
@@ -136,7 +161,9 @@ and replay either target to different emitters. Call `source_destroy` and
 See [design.md](design.md) for the full architecture and remaining migration
 work. Editable symbol-state files, typed expression trees, and conservative
 source layout are available. Source instructions still use textual operand fields.
-Additional input dialects and assembler flavors are not implemented yet.
+Intel ASM and a limited M80 8080 reader are implemented. MAC/RMAC and COM
+readers are planned. NASM is implemented;
+MASM 3, ASM86 and DRASM86 emitters remain planned.
 
 Run `make test` with NASM, emu2, bin2cmd, and Python 3 on PATH. The script accepts
 `EMU2` and `BIN2CMD` overrides. It checks both Hello World binaries,
@@ -172,8 +199,38 @@ when the final read reports a partial record.
 Both examples copy the overlapping command-line FCB names into private
 buffers. The DOS port sets the DTA and handles DOS status 3. The CP/M-86
 port sets the DMA address and preserves ES around each returning BDOS
-call. Automatic FCB translation still requires a way to establish that
-the source uses FCB fields and read statuses compatible with its target.
+call. Automatic CP/M-86 sequential FCB translation is now tested separately by
+`tests/fileops.py`, including empty files and copies through 260 records.
+General CP/M-to-DOS FCB layout adaptation remains unfinished; the opaque
+sequential subset below is implemented.
 
 See [native API coverage](api.md) for the BDOS 2.2 call inventory and
 DOS 1.00 porting requirements.
+
+## DOS FCB translation contract
+
+Input FCBs are CP/M FCBs for every target. Selecting `--target=msdos` must
+translate the source layout and its field accesses; callers never declare
+DOS FCBs. Functions 15, 16, 20, 21 and 22 now lower when FCB analysis proves that
+metadata is opaque to the source. Dedicated zero-initialized DS reservations
+of at least 33 bytes become native DOS FCB storage in place; 33–35-byte
+reservations grow to 36. All following symbolic references relocate normally.
+The bounded 12-byte name-copy loop from default FCBs is recognized by its
+instructions, not its name. No source option, shadow FCB or runtime is used.
+
+This initial analysis is deliberately restrictive: it rejects metadata accesses,
+unrecognized calls, unproved memory writes, pointer/stack escapes, alternate
+entries to the copier, unproved DMA buffers and unrelocatable addresses.
+It currently recognizes the contiguous eight-instruction name-copy idiom in
+tests/copy.asm. This is a supported program pattern, not general FCB analysis.
+
+DOS partial final reads become successful padded record reads. Create probes
+for an existing file and reports failure without truncation. Disk-full and
+hardware error paths remain untested. The unchanged CP/M copy fixture, smaller
+FCB storage, conditional calls, byte comparisons, EOF and extent boundaries
+are exercised by tests/dosfcb.py. The handwritten DOS copy example is a reference, not evidence of
+automatic CP/M FCB translation.
+
+CP/M-86 search and random I/O run in tests/randio.py. BDOS 40 is emission-tested
+only because the installed emulator lacks that service; use CPM_ZFILL=1 with
+a supporting emulator to run its zero-fill execution test.

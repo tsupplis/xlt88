@@ -32,17 +32,50 @@ bdos(const emitter_t *out, long function)
 	case 12:
 		service = "get BDOS version";
 		break;
+	case 15:
+		service = "open file, CP/M FCB at DS:DX";
+		break;
+	case 16:
+		service = "close file, CP/M FCB at DS:DX";
+		break;
+	case 17: service = "search first, CP/M directory entries in DMA"; break;
+	case 18: service = "search next, CP/M directory entries in DMA"; break;
+	case 19:
+		service = "delete file, CP/M FCB at DS:DX";
+		break;
+	case 20:
+		service = "read sequential 128-byte record";
+		break;
+	case 21:
+		service = "write sequential 128-byte record";
+		break;
+	case 22:
+		service = "create file, CP/M FCB at DS:DX";
+		break;
+	case 23:
+		service = "rename file, new name at FCB+16";
+		break;
 	case 25:
 		service = "get current drive";
 		break;
 	case 26:
 		service = "set DMA offset from DX";
 		break;
+	case 33: service = "random read, 24-bit record at FCB+33"; break;
+	case 34: service = "random write, 24-bit record at FCB+33"; break;
+	case 35: service = "file size in 128-byte records at FCB+33"; break;
+	case 36: service = "set random record from sequential position"; break;
+	case 40: service = "random write with native zero fill"; break;
 	default:
 		return 0;
 	}
 
-	/* These services have no ES result. Keep the caller's segment. */
+	/* CP/M-86 STWFCS/RSTFCB copies the same 33-byte sequential FCB used
+	 * by CP/M-80, including CR at offset 32. STWFCR extends this to 36
+	 * bytes for random operations, with R0..R2 at offsets 33..35.
+	 * File operations return AL=BL
+	 * (mapped A=L), use the native DMA, and need no shadow FCB or runtime.
+	 * These services have no ES result. Keep the caller's segment. */
 	instruction(out, "push", operand(operand_register, "es"), no_operand);
 	emit(out, output_comment, service, no_operand, no_operand);
 	emit(out, output_line_end, NULL, no_operand, no_operand);

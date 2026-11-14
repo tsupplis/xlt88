@@ -20,6 +20,7 @@
 
 #include "trans.h"
 #include "osrecog.h"
+#include "fcb.h"
 
 typedef struct translation {
 	const emitter_t *out;
@@ -28,17 +29,22 @@ typedef struct translation {
 	statement_t statement;
 	const symbol_table_t *symbols;
 	unsigned long source_line;
+	const source_record_t *record;
 	int errors;
 	int label_number;
 	int origin_seen;
 	int image_started;
 	long bdos_function;
+	int fcb_call, grow_fcb;
 } translation_t;
 
 static void
 diagnose(translation_t *ctx, const char *message, const char *detail)
 {
-	fprintf(ctx->diagnostics, "xlt88:%lu: %s%s\n", ctx->source_line, message, detail);
+	char text[768];
+	snprintf(text, sizeof(text), "%s%s", message, detail);
+	if (ctx->record) source_report(ctx->diagnostics, ctx->record, text);
+	else fprintf(ctx->diagnostics, "xlt88:%lu: %s\n", ctx->source_line, text);
 	emit(ctx->out, output_error_comment, NULL, value(operand_immediate, ctx->source_line), no_operand);
 	++ctx->errors;
 }
@@ -538,7 +544,9 @@ transfer(translation_t *ctx, int tail)
 			ctx->target->exit_program(ctx->out);
 		} else if (ctx->bdos_function < 0) {
 			diagnose(ctx, "BDOS call needs an immediately preceding MVI C, constant: ", ctx->statement.first);
-		} else if (!ctx->target->bdos(ctx->out, ctx->bdos_function)) {
+		} else if (!(ctx->fcb_call && ctx->target->file_call ?
+		    ctx->target->file_call(ctx->out, ctx->bdos_function, ctx->source_line) :
+		    ctx->target->bdos(ctx->out, ctx->bdos_function))) {
 			fprintf(ctx->diagnostics, "xlt88:%lu: BDOS function %ld needs a native port for %s\n",
 			    ctx->source_line, ctx->bdos_function, ctx->target->name);
 			diagnose(ctx, "cannot translate BDOS transfer: ", ctx->statement.first);
@@ -937,7 +945,7 @@ dw(translation_t *ctx)
 static void
 ds(translation_t *ctx)
 {
-	emit(ctx->out, output_reserve_bytes, NULL, expr(ctx, ctx->statement.first), no_operand);
+	emit(ctx->out, output_reserve_bytes, NULL, expr(ctx, ctx->grow_fcb ? "36" : ctx->statement.first), no_operand);
 }
 
 /*
@@ -1101,17 +1109,25 @@ translate_program(const source_program_t *program, const symbol_table_t *symbols
 	translation_t *ctx = &translation;
 	size_t i;
 	long *functions = NULL;
+	fcb_plan_t fcbs = {0};
 
 	if (!recognize_os_calls(program, recognition_value, ctx, &functions)) {
 		diagnose(ctx, "cannot allocate OS annotations", "");
+		goto cleanup;
+	}
+	if (backend->file_call && !fcb_analyze(program, symbols, functions, &fcbs, diagnostics)) {
+		++ctx->errors;
 		goto cleanup;
 	}
 	emit(ctx->out, output_header, backend->name, no_operand, no_operand);
 	for (i = 0; i < program->count; ++i) {
 		const source_record_t *record = &program->records[i];
 		ctx->source_line = record->line;
+		ctx->record = record;
 		ctx->statement = record->statement;
 		ctx->bdos_function = functions[i];
+		ctx->fcb_call = fcbs.calls && fcbs.calls[i];
+		ctx->grow_fcb = fcbs.grow && fcbs.grow[i];
 		if (record->problem)
 			diagnose(ctx, record->problem, "");
 		else if (!strcmp(ctx->statement.opcode, "end"))
@@ -1120,6 +1136,7 @@ translate_program(const source_program_t *program, const symbol_table_t *symbols
 			translate(ctx);
 	}
 cleanup:
+	fcb_destroy(&fcbs);
 	free(functions);
 	return ctx->errors != 0;
 }
@@ -1131,8 +1148,11 @@ lower_named(const source_program_t *source, const symbol_table_t *symbols, const
 	emitter_t builder = target_builder(target);
 	int result = translate_program(source, symbols, backend, &builder, diagnostics);
 	if (target->failed) {
-		fprintf(diagnostics, "xlt88:%lu: cannot build target program: %s\n",
-		    target->error_line, target->error ? target->error : "allocation failure");
+		char message[512];
+		snprintf(message, sizeof(message), "cannot build target program: %s", target->error ? target->error : "allocation failure");
+		if (target->error_line && target->error_line <= source->count)
+			source_report(diagnostics, &source->records[target->error_line - 1], message);
+		else fprintf(diagnostics, "xlt88: %s\n", message);
 		return 1;
 	}
 	return result;

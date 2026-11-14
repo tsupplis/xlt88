@@ -105,7 +105,10 @@ A target-specific lowering pass must leave the source program intact.
 | Assembler emitter | 8086 program and symbol table | Assembly text | Syntax, directives, operand formatting, escaping, expression rendering |
 | Driver | User options | Files and status | Dependency selection, file lifecycle, diagnostics, pipeline orchestration |
 
-Future readers cover Intel ASM and the specified MAC/RMAC dialects.
+Reader families cover Intel ASM, the specified MAC/RMAC dialects, Microsoft
+M80 source syntax (including its macro/directive model), and binary COM.
+Intel ASM is implemented; M80 has a partial flat-8080 reader. MAC/RMAC and
+COM readers remain planned.
 The names of concrete assembler dialects and versions must be explicit in
 configuration. An `.asm` extension alone does not identify a dialect.
 A CP/M-80 `.COM` reader must decode instructions and accept code/data
@@ -389,6 +392,36 @@ pointers and transient symbol-resolution contexts cannot be serialized.
 
 These steps preserve the current native translation approach. Complete
 BDOS 2.2 and DOS 1.0 service coverage remains a separate implementation
-objective tracked in `API.md`. The architecture migration supplies the
+objective tracked in `api.md`. The architecture migration supplies the
 interfaces needed to extend that coverage without coupling it to input
 syntax or output assembler choice.
+
+## FCB input contract
+
+Input FCBs always follow CP/M semantics, including for DOS output. Target
+selection must not ask the caller to assert DOS layouts. FCB analysis must
+bind storage, aliases, field accesses and BDOS operations before native DOS
+lowering. Rewrite proven source uses into native target storage and code;
+diagnose unsupported or ambiguous uses. Native DOS-layout fixtures alone do
+not establish automatic CP/M source translation.
+
+The initial fcb.c pass proves a restricted opaque-metadata subset: exact FCB
+addresses at calls, dedicated DS storage, a bounded name-initialization copier,
+and absence of unproved memory/control-flow escapes. Approved calls reach a
+backend file_call hook; other calls keep the unsupported diagnostic. Target
+storage can grow from 33 to 36 bytes, while the source and its addresses remain
+unchanged. Metadata users require a later field-access transformation; they
+are rejected today. Whole-program restrictions are intentional and documented
+rather than treating lack of an obvious alias as proof of safety.
+
+## Initial M80 reader
+
+The driver injects m80_dialect through the same dialect_t interface as Intel.
+One record remains associated with each physical line, including listing and
+mode directives normalized to comments. This preserves current symbol and FCB
+analysis indexing. LF, CRLF and bare CR are recognized; Ctrl-Z ends CP/M text.
+Macros, conditional assembly and includes require future source-origin records
+before expanding one line into multiple nodes or importing files. Their current
+rejection is intentional, not a claim of full M80 syntax support. The listing
+and mode subset follows the Microsoft MACRO-80 manual:
+https://www.s100computers.com/Software%20Folder/Assembler%20Collection/Microsoft%20M80%20Manual.pdf

@@ -104,6 +104,7 @@ main(int argc, char *argv[])
 		if (!strcmp(argv[arg], "--target=msdos")) target = &msdos_backend;
 		else if (!strcmp(argv[arg], "--target=cpm86")) target = &cpm86_backend;
 		else if (!strcmp(argv[arg], "--dialect=intel")) dialect = &intel_dialect;
+		else if (!strcmp(argv[arg], "--dialect=m80")) dialect = &m80_dialect;
 		else if (!strcmp(argv[arg], "--emit=8080")) normalized = 1;
 		else if (!strcmp(argv[arg], "--emit=nasm")) normalized = 0;
 		else if (!strncmp(argv[arg], "--state-in=", 11) && argv[arg][11]) state_in = argv[arg] + 11;
@@ -126,9 +127,15 @@ main(int argc, char *argv[])
 	}
 	fp = fopen(input, "r");
 	if (!fp) { perror(input); goto cleanup; }
-	if (!dialect->read(fp, &program)) {
+	if (!source_read(dialect, fp, input, &program)) {
 		fputs("xlt88: cannot read source program\n", stderr);
 		goto cleanup;
+	}
+	for (size_t i = 0; i < program.file_count; ++i) {
+		if (same_path(program.files[i], output) || same_path(program.files[i], state_out)) {
+			fputs("xlt88: output/state must not overwrite an included source\n", stderr);
+			goto cleanup;
+		}
 	}
 	if (!symbols_build(&program, &symbols, stderr)) goto cleanup;
 	if (state_in) {
@@ -169,7 +176,7 @@ cleanup:
 	source_destroy(&program);
 	return result;
 usage:
-	fputs("usage: xlt88 [--target=msdos|cpm86] [--dialect=intel]"
+	fputs("usage: xlt88 [--target=msdos|cpm86] [--dialect=intel|m80]"
 	    " [--emit=nasm|8080] [--state-in=names.sym] [--state-out=names.sym]"
 	    " infile.asm outfile.asm\n", stderr);
 	return 1;

@@ -1,0 +1,285 @@
+#include <stdlib.h>
+#include <string.h>
+#include "fcb.h"
+
+static int
+equal(const char *a, const char *b)
+{
+	return symbol_equal(a, b);
+}
+
+static int
+file_function(long function)
+{
+	return function == 15 || function == 16 || function == 20 ||
+	    function == 21 || function == 22;
+}
+
+static size_t
+previous(const source_program_t *source, size_t i)
+{
+	while (i) {
+		--i;
+		if (source->records[i].statement.opcode[0] || source->records[i].statement.label[0]) return i;
+	}
+	return source->count;
+}
+
+static const symbol_t *
+binding(const symbol_table_t *symbols, const char *text)
+{
+	const char *alias = symbol_alias(symbols, text);
+	return alias ? symbol_find(symbols, alias) : NULL;
+}
+
+static long
+object_size(const source_program_t *source, const symbol_table_t *symbols, const symbol_t *object)
+{
+	long size = 0;
+	if (object->line && object->line <= source->count)
+		symbols_eval(symbols, source->records[object->line - 1].statement.first, -1, &size);
+	return size;
+}
+
+static int
+transfer(const statement_t *stmt)
+{
+	return stmt->opcode[0] == 'j' || equal(stmt->opcode, "call") ||
+	    equal(stmt->opcode, "cz") || equal(stmt->opcode, "cnz") ||
+	    equal(stmt->opcode, "cc") || equal(stmt->opcode, "cnc") ||
+	    equal(stmt->opcode, "cp") || equal(stmt->opcode, "cm") ||
+	    equal(stmt->opcode, "cpe") || equal(stmt->opcode, "cpo");
+}
+
+/* Recognize the bounded semantics of a 12-byte name copy, not a routine name.
+ * Labels inside the region may only be entered through its own loop edge. */
+static int
+name_copy(const source_program_t *source, size_t start)
+{
+	static const char *const ops[] = {"mvi", "mov", "stax", "inx", "inx", "dcr", "jnz", "ret"};
+	static const char *const first[] = {"b", "a", "d", "h", "d", "b"};
+	size_t j;
+	if (start + 8 > source->count) return 0;
+	for (j = 0; j < 8; ++j) {
+		const statement_t *stmt = &source->records[start + j].statement;
+		if (!equal(stmt->opcode, ops[j])) return 0;
+		if (j < 6 && !equal(stmt->first, first[j])) return 0;
+		if (j == 0 && symbol_number(stmt->second) != 12) return 0;
+		if (j == 1 && !equal(stmt->second, "m")) return 0;
+		if (j > 1 && stmt->second[0]) return 0;
+		if (j == 6 && (!source->records[start + 1].statement.label[0] ||
+		    !equal(stmt->first, source->records[start + 1].statement.label))) return 0;
+		if (j == 7 && stmt->first[0]) return 0;
+	}
+	return 1;
+}
+
+void
+fcb_destroy(fcb_plan_t *plan)
+{
+	free(plan->calls);
+	free(plan->grow);
+	memset(plan, 0, sizeof(*plan));
+}
+
+int
+fcb_analyze(const source_program_t *source, const symbol_table_t *symbols,
+    const long *functions, fcb_plan_t *plan, FILE *diagnostics)
+{
+	unsigned char *objects = NULL, *allowed = NULL;
+	size_t *regions = NULL;
+	size_t i, j, count = source->count;
+	const char *problem = "cannot allocate FCB analysis";
+	int found = 0, result = 0;
+	plan->calls = calloc(count ? count : 1, 1);
+	plan->grow = calloc(count ? count : 1, 1);
+	objects = calloc(symbols->count ? symbols->count : 1, 1);
+	allowed = calloc(count ? count : 1, 1);
+	regions = calloc(count ? count : 1, sizeof(*regions));
+	if (!plan->calls || !plan->grow || !objects || !allowed || !regions) goto done;
+	/* A call must receive an exact, immediately loaded object address. */
+	for (i = 0; i < count; ++i) {
+		const statement_t *stmt = &source->records[i].statement;
+		size_t mvi, load;
+		const symbol_t *object;
+		if (!transfer(stmt) || symbol_value(symbols, stmt->first) != 5 || !file_function(functions[i])) continue;
+		found = 1;
+		mvi = previous(source, i);
+		load = previous(source, mvi);
+		problem = "file call needs a proven FCB address loaded immediately before MVI C";
+		if (mvi == count || load == count || stmt->label[0] || source->records[mvi].statement.label[0]) goto done;
+		stmt = &source->records[load].statement;
+		if (!equal(stmt->opcode, "lxi") || !equal(stmt->first, "d")) goto done;
+		object = binding(symbols, stmt->second);
+		if (!object || object->is_equ) goto done;
+		objects[object->id - 1] = 1;
+		allowed[load] = 1;
+		plan->calls[i] = 1;
+	}
+	if (!found) { result = 1; goto done; }
+	/* Require a dedicated zero-initialized reservation. 33-byte CP/M FCBs
+	 * grow to 36 bytes; symbolic addressing relocates following objects. */
+	for (j = 0; j < symbols->count; ++j) if (objects[j]) {
+		const symbol_t *object = &symbols->items[j];
+		long size;
+		i = object->line - 1;
+		problem = "FCB must have dedicated DS storage of at least 33 bytes";
+		if (object->source_address < 0 || i >= count || !equal(source->records[i].statement.opcode, "ds") ||
+		    !symbols_eval(symbols, source->records[i].statement.first, -1, &size) || size < 33 || size > 65536 - object->source_address) goto done;
+		plan->grow[i] = size < 36;
+		allowed[i] = 1;
+		/* Another label at the object address is an untracked alias. */
+		for (size_t k = 0; k < symbols->count; ++k)
+			if (k != j && !symbols->items[k].is_equ && object->source_address >= 0 &&
+			    symbols->items[k].source_address == object->source_address) {
+				problem = "FCB storage has an untracked label alias"; goto done;
+			}
+	}
+	/* Discover and verify all calls to bounded name-copy routines. */
+	for (i = 0; i < count; ++i) {
+		const statement_t *stmt = &source->records[i].statement;
+		const symbol_t *routine, *object;
+		size_t load, origin, start;
+		long address;
+		if (!equal(stmt->opcode, "call") || symbol_value(symbols, stmt->first) == 5) continue;
+		problem = "unrecognized subroutine may expose FCB storage";
+		routine = binding(symbols, stmt->first);
+		if (!routine || routine->is_equ) goto done;
+		start = routine->line - 1;
+		if (!name_copy(source, start)) goto done;
+		load = previous(source, i); origin = previous(source, load);
+		if (load == count || origin == count || stmt->label[0] || source->records[load].statement.label[0]) goto done;
+		stmt = &source->records[load].statement;
+		object = binding(symbols, stmt->second);
+		if (!equal(stmt->opcode, "lxi") || !equal(stmt->first, "d") || !object || !objects[object->id - 1]) goto done;
+		stmt = &source->records[origin].statement;
+		if (!equal(stmt->opcode, "lxi") || !equal(stmt->first, "h") ||
+		    !symbols_eval(symbols, stmt->second, -1, &address) || (address != 0x5c && address != 0x6c)) goto done;
+		allowed[load] = allowed[i] = 1;
+		for (j = start; j < start + 8; ++j) regions[j] = start + 1;
+	}
+	for (i = 0; i < count; ++i) {
+		const statement_t *stmt = &source->records[i].statement;
+		const symbol_t *dest;
+		/* No control transfer may enter the middle of the audited copier. */
+		if (transfer(stmt) && (dest = binding(symbols, stmt->first)) && !dest->is_equ) {
+			size_t entry = dest->line - 1;
+			if (entry < count && (equal(source->records[entry].statement.opcode, "db") ||
+			    equal(source->records[entry].statement.opcode, "dw") || equal(source->records[entry].statement.opcode, "ds"))) {
+				problem = "transfer to data cannot be audited"; goto done;
+			}
+			if (entry < count && regions[entry] &&
+			    !(allowed[i] && equal(stmt->opcode, "call") && entry + 1 == regions[entry]) &&
+			    !(regions[i] == regions[entry] && equal(stmt->opcode, "jnz") && entry == regions[entry])) {
+				problem = "control transfer enters audited name-copy routine"; goto done;
+			}
+		}
+		if (regions[i]) {
+			if (regions[i] == i + 1) {
+				size_t before = previous(source, i);
+				if (before == count || !equal(source->records[before].statement.opcode, "jmp")) {
+					problem = "name-copy routine can be entered by fallthrough"; goto done;
+				}
+			}
+			continue;
+		}
+		if (equal(stmt->opcode, "ldax") || equal(stmt->opcode, "ret") ||
+		    (stmt->opcode[0] == 'r' && strlen(stmt->opcode) <= 3 &&
+		    !equal(stmt->opcode, "rlc") && !equal(stmt->opcode, "rrc") &&
+		    !equal(stmt->opcode, "ral") && !equal(stmt->opcode, "rar") && !equal(stmt->opcode, "rst"))) {
+			problem = "unproved indirect memory or return in FCB program"; goto done;
+		}
+		/* All indirect reads outside the copier need a straight-line address
+		 * definition. This prevents synthesized aliases to repurposed fields. */
+		if ((equal(stmt->opcode, "mov") && equal(stmt->second, "m")) ||
+		    equal(stmt->first, "m")) {
+			size_t load = previous(source, i);
+			long offset = 0, address;
+			if (stmt->label[0]) { problem = "indirect read has an alternate entry"; goto done; }
+			while (load != count && equal(source->records[load].statement.opcode, "inx") &&
+			    equal(source->records[load].statement.first, "h") && !source->records[load].statement.label[0]) {
+				++offset; load = previous(source, load);
+			}
+			problem = "indirect read address is not proven outside FCB metadata";
+			if (load == count || !equal(source->records[load].statement.opcode, "lxi") ||
+			    !equal(source->records[load].statement.first, "h") ||
+			    !binding(symbols, source->records[load].statement.second) ||
+			    !symbols_eval(symbols, source->records[load].statement.second, -1, &address)) goto done;
+			for (j = 0; j < symbols->count; ++j) if (objects[j]) {
+				long base = symbols->items[j].source_address;
+				if (base < 0 || (address + offset >= base && address + offset < base + object_size(source, symbols, &symbols->items[j]))) goto done;
+			}
+		}
+		if (equal(stmt->opcode, "lda") || equal(stmt->opcode, "lhld")) {
+			const symbol_t *address = binding(symbols, stmt->first);
+			if (!address || address->is_equ || address->source_address < 0) {
+				problem = "direct memory address cannot be audited for FCB aliases"; goto done;
+			}
+		}
+		if (equal(stmt->opcode, "lxi") && equal(stmt->first, "sp")) {
+			const symbol_t *top = binding(symbols, stmt->second);
+			size_t reserve = top ? previous(source, top->line - 1) : count;
+			long size;
+			problem = "stack storage is not proven separate from FCBs";
+			if (reserve == count || !equal(source->records[reserve].statement.opcode, "ds") ||
+			    !symbols_eval(symbols, source->records[reserve].statement.first, -1, &size) || size < 128) goto done;
+		}
+		if ((equal(stmt->opcode, "inx") || equal(stmt->opcode, "dcx")) && equal(stmt->first, "sp")) {
+			problem = "stack pointer arithmetic cannot be audited"; goto done;
+		}
+		if (transfer(stmt) && symbol_value(symbols, stmt->first) == 5 && functions[i] == 26) {
+			size_t load = previous(source, previous(source, i));
+			const symbol_t *buffer = load < count ? binding(symbols, source->records[load].statement.second) : NULL;
+			long size;
+			problem = "DMA must reference dedicated DS storage of at least 128 bytes";
+			if (!buffer || objects[buffer->id - 1] || !equal(source->records[load].statement.opcode, "lxi") ||
+			    !equal(source->records[load].statement.first, "d") ||
+			    !equal(source->records[buffer->line - 1].statement.opcode, "ds") ||
+			    !symbols_eval(symbols, source->records[buffer->line - 1].statement.first, -1, &size) || size < 128) goto done;
+		}
+
+		/* Conservative first slice: only the proved copier may write memory.
+		 * Reject stack/pointer tricks and dynamically computed transfers too. */
+		problem = "unproven memory write or pointer escape in FCB program";
+		if (equal(stmt->opcode, "sta") || equal(stmt->opcode, "shld") || equal(stmt->opcode, "stax") ||
+		    equal(stmt->opcode, "xthl") || equal(stmt->opcode, "pchl") || equal(stmt->opcode, "sphl") ||
+		    equal(stmt->opcode, "push") || equal(stmt->opcode, "pop") ||
+		    ((equal(stmt->opcode, "mov") || equal(stmt->opcode, "mvi") || equal(stmt->opcode, "inr") ||
+		    equal(stmt->opcode, "dcr")) && equal(stmt->first, "m"))) goto done;
+		if (equal(stmt->opcode, "lxi") && !equal(stmt->first, "sp")) {
+			long address;
+			if (!binding(symbols, stmt->second) &&
+			    (!symbols_eval(symbols, stmt->second, -1, &address) || address >= 0x100)) {
+				problem = "computed address cannot be relocated with FCB storage"; goto done;
+			}
+		}
+		if (transfer(stmt)) {
+			long address = symbol_value(symbols, stmt->first);
+			if (address >= 0 && address != 0 && address != 5) { problem = "numeric transfer cannot be audited for FCB aliases"; goto done; }
+			if (!equal(stmt->opcode, "jmp") && stmt->opcode[0] == 'c' && address != 5 && !allowed[i]) {
+				problem = "unrecognized subroutine may expose FCB storage"; goto done;
+			}
+		}
+		/* Reject every unapproved occurrence of an FCB symbol, including
+		 * arithmetic expressions and EQU aliases. Values are source offsets. */
+		for (j = 0; j < symbols->count; ++j) if (objects[j]) {
+			const symbol_t *object = &symbols->items[j];
+			const char *operands[] = {stmt->first, stmt->second};
+			for (size_t k = 0; k < 2; ++k) {
+				long value;
+				const symbol_t *direct = binding(symbols, operands[k]);
+				if (allowed[i]) continue;
+				if ((direct && direct->id == object->id) ||
+				    (symbols_eval(symbols, operands[k], -1, &value) && object->source_address >= 0 &&
+				    value >= object->source_address && value < object->source_address + object_size(source, symbols, object))) {
+					problem = "FCB field access or address escape needs translation"; goto done;
+				}
+			}
+		}
+	}
+	result = 1;
+done:
+	if (!result) fprintf(diagnostics, "xlt88: DOS FCB analysis: %s\n", problem);
+	free(objects); free(allowed); free(regions);
+	return result;
+}

@@ -82,13 +82,19 @@ symbols_build(const source_program_t *source, symbol_table_t *table, FILE *diagn
 		const source_record_t *record = &source->records[i];
 		const statement_t *stmt = &record->statement;
 		symbol_t *item;
+		if (source->file_count > 1 && record->origin_file) {
+			char line[32];
+			fingerprint_text(table, record->origin_file);
+			snprintf(line, sizeof(line), "%lu", record->origin_line);
+			fingerprint_text(table, line);
+		}
 		fingerprint_text(table, stmt->label);
 		fingerprint_text(table, stmt->opcode);
 		fingerprint_text(table, stmt->first);
 		fingerprint_text(table, stmt->second);
 		fingerprint_text(table, stmt->comment);
 		if (record->problem) {
-			fprintf(diagnostics, "xlt88:%lu: %s\n", record->line, record->problem);
+			source_report(diagnostics, record, record->problem);
 			return 0;
 		}
 		if (!strcmp(stmt->opcode, "end"))
@@ -96,7 +102,9 @@ symbols_build(const source_program_t *source, symbol_table_t *table, FILE *diagn
 		if (!stmt->label[0])
 			continue;
 		if (symbol_find(table, stmt->label)) {
-			fprintf(diagnostics, "xlt88:%lu: duplicate source symbol: %s\n", record->line, stmt->label);
+			char message[320];
+			snprintf(message, sizeof(message), "duplicate source symbol: %s", stmt->label);
+			source_report(diagnostics, record, message);
 			return 0;
 		}
 		item = &table->items[table->count++];
