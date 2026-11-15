@@ -63,4 +63,5 @@ with tempfile.TemporaryDirectory() as directory:
                'Function 46 now passes through natively. The version-dependent branch is retained; its native availability and semantics remain the responsibility of the port author.',
                'The reference ES overrides remain deliberate target adjustments, not application-specific translator rules.']
 assert all(hashlib.sha256(p.read_bytes()).hexdigest() == digest for p, digest in hashes.items())
-Path(sys.argv[1] if len(sys.argv) > 1 else 'diskref.md').write_text('\n'.join(report) + '\n')
+if len(sys.argv) > 1:
+    Path(sys.argv[1]).write_text('\n'.join(report) + '\n')

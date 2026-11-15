@@ -31,14 +31,15 @@ def runner(work, target):
             result = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
         assert result.returncode in codes, (args, result.stdout, result.stderr)
         return result.stdout
-    def build(name, text, flavor, dialect="intel", patch=None):
+    def build(name, text, flavor, dialect="intel", patch=None, com_map=None):
         # Never let a failed tool leave a previous executable looking successful.
         for extension in ('.obj','.exe','.com','.cmd','.h86'):
             (work/(name+extension)).unlink(missing_ok=True)
         source = work/(name+'.80')
         source.write_bytes(text) if isinstance(text, bytes) else source.write_text(text)
         suffix = '.a86' if flavor in ('asm86','drasm86') else '.asm'
-        command([str(exe),'--dialect='+dialect,'--target='+target,'--emit='+flavor,str(source),name+suffix])
+        options = ['--com-map='+str(com_map)] if com_map is not None else []
+        command([str(exe),'--dialect='+dialect,'--target='+target,'--emit='+flavor,*options,str(source),name+suffix])
         # Explicit test-only target ports stay separate from source translation.
         if patch is not None:
             assembly = work / (name + suffix)

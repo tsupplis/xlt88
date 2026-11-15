@@ -53,6 +53,7 @@ with tempfile.TemporaryDirectory() as directory:
     report += ['', 'A blocked result is not an execution pass. The table records each current result independently. Both targets are required acceptance gates; arbitrary memory uses native target semantics.',
                'The fixed origin is required by eight-bit variable indexing. The translated source and variable location remain unchanged; only proven general code-size optimisations are applied.'] + details
 assert all(hashlib.sha256(p.read_bytes()).hexdigest() == digest for p,digest in hashes.items())
-Path(sys.argv[1] if len(sys.argv)>1 else 'vtlbench.md').write_text('\n'.join(report)+'\n')
+if len(sys.argv) > 1:
+    Path(sys.argv[1]).write_text('\n'.join(report)+'\n')
 assert not regressions, ('Established VTL-2 execution targets regressed', regressions)
 print('Reference acceptance passed; all target results recorded explicitly',flush=True)

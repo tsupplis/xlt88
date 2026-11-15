@@ -138,7 +138,7 @@ register_operand(const char *name, int wide)
 		if (length == 2 && (name[0] == 'S' || name[0] == 's') &&
 		    (name[1] == 'P' || name[1] == 'p'))
 			return reg("sp");
-		if (length == 3 && (!strncmp(name, "PSW", 3) || !strncmp(name, "psw", 3)))
+		if (length == 3 && equal_name(name, "psw"))
 			return reg("ax");
 	} else if (length == 1) {
 		if (letter >= 'a' && letter <= 'e')
@@ -513,7 +513,7 @@ cmp(translation_t *ctx)
 static void
 push(translation_t *ctx)
 {
-	if (!strcmp(ctx->statement.first, "PSW") || !strcmp(ctx->statement.first, "psw")) {
+	if (equal_name(ctx->statement.first, "psw")) {
 		instruction(ctx->out, "lahf", no_operand, no_operand);
 	emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
 		instruction(ctx->out, "xchg", reg("al"), reg("ah"));
@@ -771,7 +771,7 @@ rnz(translation_t *ctx)
 static void
 pop(translation_t *ctx)
 {
-	if (!strcmp(ctx->statement.first, "PSW") || !strcmp(ctx->statement.first, "psw")) {
+	if (equal_name(ctx->statement.first, "psw")) {
 		instruction(ctx->out, "pop", reg("ax"), no_operand);
 	emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
 		instruction(ctx->out, "xchg", reg("al"), reg("ah"));

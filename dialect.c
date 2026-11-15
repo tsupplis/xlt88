@@ -274,12 +274,62 @@ source_destroy(source_program_t *program)
 	memset(program, 0, sizeof(*program));
 }
 
+/* Validate CPU operand shapes only after macro expansion. A macro may use an
+ * instruction name, and its arguments must not be mistaken for CPU operands.
+ * Expression evaluation and target representation stay in their own passes. */
+static int
+register_in(const char *name, const char *set)
+{
+	char lower[4];
+	size_t length = strlen(name);
+	if (!length || length >= sizeof(lower)) return 0;
+	for (size_t i = 0; i <= length; ++i) lower[i] = tolower((unsigned char)name[i]);
+	return in_list(set, lower);
+}
+
+static const char *
+instruction_operands(const statement_t *stmt)
+{
+	const char *op = stmt->opcode, *a = stmt->first, *b = stmt->second;
+	const char *bytes = "a b c d e h l m";
+	int valid;
+	if (in_list("nop rlc rrc ral rar daa cma stc cmc hlt rnz rz ret rnc rc rpo rpe pchl xthl xchg rp rm sphl di ei", op))
+		valid = !*a && !*b;
+	else if (in_list("inr dcr add adc sub sbb ana xra ora cmp", op))
+		valid = register_in(a, bytes) && !*b;
+	else if (in_list("inx dcx dad", op))
+		valid = register_in(a, "b d h sp") && !*b;
+	else if (in_list("push pop", op))
+		valid = register_in(a, "b d h psw") && !*b;
+	else if (in_list("stax ldax", op))
+		valid = register_in(a, "b d") && !*b;
+	else if (!strcmp(op, "mov"))
+		valid = register_in(a, bytes) && register_in(b, bytes) &&
+		    !(register_in(a, "m") && register_in(b, "m"));
+	else if (!strcmp(op, "mvi"))
+		valid = register_in(a, bytes) && *b;
+	else if (!strcmp(op, "lxi"))
+		valid = register_in(a, "b d h sp") && *b;
+	else if (in_list("lda sta lhld shld jmp jnz jz jnc jc jpo jpe jp jm call cnz cz cnc cc cpo cpe cp cm adi aci sui sbi ani xri ori cpi in out rst", op))
+		valid = *a && !*b;
+	else return NULL;
+	return valid ? NULL : "invalid 8080 instruction operands";
+}
+
 int
 source_read(const dialect_t *dialect, FILE *in, const char *path, source_program_t *program)
 {
-	if (dialect == &mac_dialect) return mac_read_file(in, path, program);
-	if (dialect == &rmac_dialect) return rmac_read_file(in, path, program);
-	return dialect == &m80_dialect ? m80_read_file(in, path, program) : dialect->read(in, program);
+	int result;
+	if (dialect == &mac_dialect) result = mac_read_file(in, path, program);
+	else if (dialect == &rmac_dialect) result = rmac_read_file(in, path, program);
+	else result = dialect == &m80_dialect ? m80_read_file(in, path, program) : dialect->read(in, program);
+	if (result) {
+		for (size_t i = 0; i < program->count; ++i) {
+			source_record_t *record = &program->records[i];
+			if (!record->problem) record->problem = instruction_operands(&record->statement);
+		}
+	}
+	return result;
 }
 
 void

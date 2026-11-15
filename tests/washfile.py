@@ -89,4 +89,5 @@ with tempfile.TemporaryDirectory() as directory:
                'A native allocation-aware port needs separate acceptance; the maintained sibling port is not substituted here.',
                'Console-buffer input uses stdin for these cases because this emulator handles BDOS 10 separately from its key-script input.']
 assert all(hashlib.sha256(p.read_bytes()).hexdigest() == h for p,h in hashes.items())
-Path(sys.argv[1] if len(sys.argv)>1 else 'washfile.md').write_text('\n'.join(report)+'\n')
+if len(sys.argv) > 1:
+    Path(sys.argv[1]).write_text('\n'.join(report)+'\n')

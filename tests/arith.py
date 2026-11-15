@@ -14,6 +14,21 @@ EDGES = (0, 1, 7, 8, 9, 10, 15, 16, 127, 128, 153, 154, 254, 255)
 def reference(op, a, b, flags):
     """Return result, S/Z/AC/P/C, including the PSW fixed bit."""
     carry = flags & 1
+    if op in ("rlc", "rrc", "ral", "rar", "cma", "stc", "cmc"):
+        result = a
+        if op in ("rlc", "ral"):
+            result = ((a << 1) | (a >> 7 if op == "rlc" else carry)) & 255
+            carry = a >> 7
+        elif op in ("rrc", "rar"):
+            result = (a >> 1) | ((a & 1 if op == "rrc" else carry) << 7)
+            carry = a & 1
+        elif op == "cma":
+            result = a ^ 255
+        elif op == "stc":
+            carry = 1
+        else:
+            carry ^= 1
+        return result, (flags & 0xd4) | 2 | carry
     if op == "daa":
         low = 6 if (a & 15) > 9 or flags & 16 else 0
         high = a + low >= 160 or carry
@@ -26,10 +41,15 @@ def reference(op, a, b, flags):
     elif op == "dcr":
         value = a - 1
         auxiliary = (a & 15) != 0
-    elif op == "adc":
-        value = a + b + carry
-        auxiliary = (a & 15) + (b & 15) + carry > 15
+    elif op in ("add", "adc"):
+        incoming = carry if op == "adc" else 0
+        value = a + b + incoming
+        auxiliary = (a & 15) + (b & 15) + incoming > 15
         carry = value > 255
+    elif op in ("ana", "ora", "xra"):
+        value = a & b if op == "ana" else a | b if op == "ora" else a ^ b
+        auxiliary = bool((a | b) & 8) if op == "ana" else False
+        carry = 0
     else:
         borrow = carry if op == "sbb" else 0
         value = a - b - borrow
@@ -58,15 +78,15 @@ def fixture(op, form, inputs):
         lines += [f"        lxi h, {a * 256 + flags}",
                   "        push h", "        pop psw"]
         if op in ("inr", "dcr") and form != "a":
-            lines += ["        lxi h, cell", "        mov m, a",
-                      "        mov b, a"]
+            lines += ["        lxi h, cell", f"        mov {form}, a"]
         elif form == "m":
             lines += ["        lxi h, cell", f"        mvi m, {b}"]
-        elif form == "b":
-            lines += [f"        mvi b, {b}"]
+        elif form in ("b", "c", "d", "e", "h", "l"):
+            lines += [f"        mvi {form}, {b}"]
 
         if form == "immediate":
-            mnemonic = {"adc": "aci", "sbb": "sbi", "cmp": "cpi", "sub": "sui"}[op]
+            mnemonic = {"add": "adi", "adc": "aci", "sbb": "sbi", "cmp": "cpi",
+                        "sub": "sui", "ana": "ani", "ora": "ori", "xra": "xri"}[op]
             lines += [f"        {mnemonic} {b}"]
         else:
             lines += [f"        {op} {form}".rstrip()]

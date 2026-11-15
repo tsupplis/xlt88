@@ -1,5 +1,5 @@
 PROG =	xlt88
-OBJS = rmac.o conbuf.o storage.o reset.o fcbdef.o fcbaddr.o flags.o mexpr.o macro.o m80.o mac.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o regions.o norm8080.o \
+OBJS = comread.o rmac.o conbuf.o storage.o reset.o fcbdef.o fcbaddr.o flags.o mexpr.o macro.o m80.o mac.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o regions.o norm8080.o \
 	osrecog.o trans.o emitter.o target.o shrink.o nasm.o asm86.o asmfmt.o masm.o drasm86.o msdos.o cpm86.o
 PYTHON = python3
 
@@ -76,6 +76,9 @@ test: ${PROG} tests/iface tests/expr tests/readers tests/shrink tests/osrecog te
 	${PYTHON} tests/conbuf.py
 	${PYTHON} tests/forth.py
 	${PYTHON} tests/arith.py
+	${PYTHON} tests/cpufinal.py
+	${PYTHON} tests/operands.py
+	${PYTHON} tests/comread.py
 	${PYTHON} tests/state.py
 	${PYTHON} tests/layout.py
 	${PYTHON} tests/fileops.py
@@ -88,12 +91,12 @@ test: ${PROG} tests/iface tests/expr tests/readers tests/shrink tests/osrecog te
 	${PYTHON} tests/dosmore.py
 	${PYTHON} tests/dosnames.py
 	${PYTHON} tests/drives.py
-	${PYTHON} tests/vtlbench.py vtlbench.md
+	${PYTHON} tests/vtlbench.py
 	${PYTHON} tests/vtlscr.py
-	${PYTHON} tests/wash.py wash.md
-	${PYTHON} tests/washfile.py washfile.md
-	${PYTHON} tests/washport.py washport.md
-	${PYTHON} tests/diskref.py diskref.md
+	${PYTHON} tests/wash.py
+	${PYTHON} tests/washfile.py
+	${PYTHON} tests/washport.py
+	${PYTHON} tests/diskref.py
 
 .PHONY: all clean test
 
@@ -127,7 +130,7 @@ xlt88.o masm.o tests/iface: masm.h
 xlt88.o drasm86.o tests/iface: drasm86.h
 
 corpus: ${PROG}
-	${PYTHON} tests/corpus.py corpus.md
+	${PYTHON} tests/corpus.py
 
 .PHONY: corpus
 
@@ -139,7 +142,7 @@ trans.o regions.o: regions.h
 regions.o: symbols.h dialect.h
 
 vtlbench: ${PROG}
-	${PYTHON} tests/vtlbench.py vtlbench.md
+	${PYTHON} tests/vtlbench.py
 
 .PHONY: vtlbench
 
@@ -177,3 +180,5 @@ reset.o: emitter.h
 conbuf.o msdos.o: conbuf.h emitter.h
 
 rmac.o mac.o m80.o dialect.o: dialect.h
+comread.o xlt88.o: comread.h
+comread.o: dialect.h

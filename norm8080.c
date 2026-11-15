@@ -2,6 +2,23 @@
 
 #include "symbols.h"
 
+/* Only expression fields participate in renaming. Keeping the complete list
+ * here avoids treating registers, literals or mnemonic prefixes as symbols. */
+static int
+expression_field(const char *opcode)
+{
+	static const char *const first[] = {
+		"equ", "db", "dw", "ds", "org", "align", "lda", "sta", "lhld", "shld",
+		"adi", "aci", "sui", "sbi", "ani", "xri", "ori", "cpi", "in", "out", "rst",
+		"jmp", "jnz", "jz", "jnc", "jc", "jpo", "jpe", "jp", "jm",
+		"call", "cnz", "cz", "cnc", "cc", "cpo", "cpe", "cp", "cm"
+	};
+	if (!strcmp(opcode, "lxi") || !strcmp(opcode, "mvi")) return 2;
+	for (size_t i = 0; i < sizeof(first) / sizeof(*first); ++i)
+		if (!strcmp(opcode, first[i])) return 1;
+	return 0;
+}
+
 int
 emit_named_8080(const source_program_t *program, const symbol_table_t *symbols, FILE *out, FILE *diagnostics)
 {
@@ -19,24 +36,15 @@ emit_named_8080(const source_program_t *program, const symbol_table_t *symbols, 
 		if (symbols) {
 			label = symbol_find(symbols, stmt->label);
 			if (label) strcpy(renamed.label, label->preferred);
-			/* Only expression operands are renamed: registers and strings
-			 * must keep their meaning even when a source label is A or B. */
-			if (!strcmp(stmt->opcode, "lxi") || !strcmp(stmt->opcode, "mvi")) {
-				if (!symbols_text(symbols, record->statement.second, renamed.second, sizeof(renamed.second))) goto too_long;
-			} else if (!strcmp(stmt->opcode, "equ") || !strcmp(stmt->opcode, "db") ||
-			    !strcmp(stmt->opcode, "dw") || !strcmp(stmt->opcode, "ds") ||
-			    !strcmp(stmt->opcode, "org") || !strcmp(stmt->opcode, "align") ||
-			    !strcmp(stmt->opcode, "lda") || !strcmp(stmt->opcode, "sta") ||
-			    !strcmp(stmt->opcode, "lhld") || !strcmp(stmt->opcode, "shld") ||
-			    !strcmp(stmt->opcode, "adi") || !strcmp(stmt->opcode, "aci") ||
-			    !strcmp(stmt->opcode, "sui") || !strcmp(stmt->opcode, "sbi") ||
-			    !strcmp(stmt->opcode, "ani") || !strcmp(stmt->opcode, "xri") ||
-			    !strcmp(stmt->opcode, "ori") || !strcmp(stmt->opcode, "cpi") ||
-			    !strcmp(stmt->opcode, "in") || !strcmp(stmt->opcode, "out") ||
-			    !strcmp(stmt->opcode, "rst") || stmt->opcode[0] == 'j' ||
-			    (!strncmp(stmt->opcode, "c", 1) && strcmp(stmt->opcode, "cmp") &&
-			    strcmp(stmt->opcode, "cma") && strcmp(stmt->opcode, "cmc"))) {
+			switch (expression_field(stmt->opcode)) {
+			case 1:
 				if (!symbols_text(symbols, record->statement.first, renamed.first, sizeof(renamed.first))) goto too_long;
+				break;
+			case 2:
+				if (!symbols_text(symbols, record->statement.second, renamed.second, sizeof(renamed.second))) goto too_long;
+				break;
+			default:
+				break;
 			}
 		}
 		/* The Intel reader accepts at most 254 content bytes per line. */

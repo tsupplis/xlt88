@@ -1,6 +1,7 @@
 /* Native CP/M-86 lowering. These hooks append ordinary 8086 instructions
  * to the target builder; assembler syntax and program storage live elsewhere.
- * Service coverage is intentionally limited to the cases listed below. */
+ * The documented CP/M 2.2 entry set is lowered below; native structures and
+ * unverified device/state behavior retain the contracts recorded in api.md. */
 #include "backend.h"
 #include "reset.h"
 

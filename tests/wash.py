@@ -64,4 +64,5 @@ with tempfile.TemporaryDirectory() as directory:
                '- DOS needs directory-result and explicit FCB-field translation.',
                '', 'No program-name exception or source patch has been added.']
 assert all(hashlib.sha256(path.read_bytes()).hexdigest() == digest for path, digest in hashes.items())
-Path(sys.argv[1] if len(sys.argv) > 1 else 'wash.md').write_text('\n'.join(report) + '\n')
+if len(sys.argv) > 1:
+    Path(sys.argv[1]).write_text('\n'.join(report) + '\n')

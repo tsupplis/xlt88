@@ -75,6 +75,8 @@ with tempfile.TemporaryDirectory() as directory:
                     details += ['', '```text', error[:1800], '```']
         print(f'{source.name}: normalize={normalized}, translate={translated}/8, assemble={assembled}/8, execute={executed}/8', flush=True)
 report += ['', 'Excluded existing 8086 references: '+', '.join(sorted(outputs))+'.'] + details
-Path(sys.argv[1] if len(sys.argv)>1 else 'corpus.md').write_text('\n'.join(report)+'\n')
+if len(sys.argv) > 1:
+    Path(sys.argv[1]).write_text('\n'.join(report)+'\n')
 if failed_smoke:
-    raise SystemExit('An established smoke fixture regressed; see report')
+    print('\n'.join(report))
+    raise SystemExit('An established smoke fixture regressed')

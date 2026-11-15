@@ -27,6 +27,7 @@
 #include "masm.h"
 #include "drasm86.h"
 #include "target.h"
+#include "comread.h"
 
 /* Reject aliases before creating staging files. State input and output may
  * coincide; source and assembly must remain distinct from either state path. */
@@ -98,19 +99,21 @@ main(int argc, char *argv[])
 	source_program_t program = {0};
 	symbol_table_t symbols = {0};
 	const dialect_t *dialect = &intel_dialect;
-	const char *input, *output, *state_in = NULL, *state_out = NULL;
+	const char *input, *output, *state_in = NULL, *state_out = NULL, *com_map = NULL;
 	char *assembly_temp = NULL, *state_temp = NULL;
-	FILE *fp = NULL, *out = NULL, *state = NULL;
-	int arg = 1, normalized = 0, result = 1;
+	FILE *fp = NULL, *out = NULL, *state = NULL, *map = NULL;
+	int arg = 1, normalized = 0, result = 1, binary = 0;
 	int (*render)(const target_program_t *, FILE *, FILE *) = NULL;
 
 	while (arg < argc && argv[arg][0] == '-') {
 		if (!strcmp(argv[arg], "--target=msdos")) target = &msdos_backend;
 		else if (!strcmp(argv[arg], "--target=cpm86")) target = &cpm86_backend;
-		else if (!strcmp(argv[arg], "--dialect=intel")) dialect = &intel_dialect;
-		else if (!strcmp(argv[arg], "--dialect=m80")) dialect = &m80_dialect;
-		else if (!strcmp(argv[arg], "--dialect=mac")) dialect = &mac_dialect;
-		else if (!strcmp(argv[arg], "--dialect=rmac")) dialect = &rmac_dialect;
+		else if (!strcmp(argv[arg], "--dialect=intel")) { dialect = &intel_dialect; binary = 0; }
+		else if (!strcmp(argv[arg], "--dialect=m80")) { dialect = &m80_dialect; binary = 0; }
+		else if (!strcmp(argv[arg], "--dialect=mac")) { dialect = &mac_dialect; binary = 0; }
+		else if (!strcmp(argv[arg], "--dialect=rmac")) { dialect = &rmac_dialect; binary = 0; }
+		else if (!strcmp(argv[arg], "--dialect=com")) binary = 1;
+		else if (!strncmp(argv[arg], "--com-map=", 10) && argv[arg][10]) com_map = argv[arg] + 10;
 		else if (!strcmp(argv[arg], "--emit=8080")) normalized = 1;
 		else if (!strcmp(argv[arg], "--emit=nasm")) { normalized = 0; render = NULL; }
 		else if (!strcmp(argv[arg], "--emit=masm3")) { normalized = 0; render = masm_render; }
@@ -122,7 +125,7 @@ main(int argc, char *argv[])
 		else goto usage;
 		++arg;
 	}
-	if (argc - arg != 2) goto usage;
+	if (argc - arg != 2 || binary != (com_map != NULL)) goto usage;
 	input = argv[arg];
 	output = argv[arg + 1];
 	if (same_path(input, output)) {
@@ -130,13 +133,19 @@ main(int argc, char *argv[])
 		return 1;
 	}
 	if (same_path(input, state_in) || same_path(input, state_out) ||
-	    same_path(output, state_in) || same_path(output, state_out)) {
-		fputs("xlt88: source, assembly and state paths must differ\n", stderr);
+	    same_path(output, state_in) || same_path(output, state_out) ||
+	    same_path(com_map, output) || same_path(com_map, state_out) ||
+	    same_path(com_map, input) || same_path(com_map, state_in)) {
+		fputs("xlt88: source, map, assembly and state paths must differ\n", stderr);
 		return 1;
 	}
-	fp = fopen(input, "r");
+	fp = fopen(input, "rb");
 	if (!fp) { perror(input); goto cleanup; }
-	if (!source_read(dialect, fp, input, &program)) {
+	if (binary) {
+		map = fopen(com_map, "r");
+		if (!map) { perror(com_map); goto cleanup; }
+	}
+	if (!(binary ? com_read(fp, map, &program, stderr) : source_read(dialect, fp, input, &program))) {
 		fputs("xlt88: cannot read source program\n", stderr);
 		goto cleanup;
 	}
@@ -177,6 +186,7 @@ main(int argc, char *argv[])
 	if (state_out && rename(state_temp, state_out)) { perror(state_out); goto cleanup; }
 	result = 0;
 cleanup:
+	if (map) fclose(map);
 	if (fp) fclose(fp);
 	if (out) fclose(out);
 	if (state) fclose(state);
@@ -187,7 +197,7 @@ cleanup:
 	source_destroy(&program);
 	return result;
 usage:
-	fputs("usage: xlt88 [--target=msdos|cpm86] [--dialect=intel|m80|mac|rmac]"
+	fputs("usage: xlt88 [--target=msdos|cpm86] [--dialect=intel|m80|mac|rmac|com] [--com-map=layout.map]"
 	    " [--emit=nasm|asm86|masm3|drasm86|8080] [--state-in=names.sym] [--state-out=names.sym]"
 	    " infile.asm outfile.asm\n", stderr);
 	return 1;
