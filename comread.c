@@ -312,17 +312,32 @@ read_image(FILE *binary, FILE *map, FILE *draft, source_program_t *source, FILE 
 	if (!flat) goto done;
 	fputs(" org 100h\n", flat);
 	if (draft) fputs(" ; XLT88 TODO: discovery draft only; review map, pointers and code/data boundaries before translation\n", flat);
-	for (pc = com_origin; pc < image->end; pc += image->width[pc]) {
+	for (pc = com_origin; pc < image->end;) {
 		char operand[32];
 		unsigned width = image->width[pc];
+		int bytes = image->kind[pc] == 2 || image->kind[pc] == 4;
+		/* Keep byte runs compact without hiding any referenced address, note
+		 * or classification boundary. Per-byte labels burden all downstream
+		 * analyses and add no information for unreferenced literal storage. */
+		if (bytes) {
+			while (width < 16 && pc + width < image->end &&
+			    image->kind[pc+width] == image->kind[pc] &&
+			    !image->label[pc+width] && !image->note[pc+width]) ++width;
+		}
 		/* Include notes on operand bytes too when a competing path lands there. */
 		for (unsigned i = 0; i < width; ++i)
 			if (image->note[pc+i]) fprintf(flat, " ; XLT88 TODO: COM %04x: %s\n", pc+i, image->note[pc+i]);
 		if (image->kind[pc] == 4 && (pc == com_origin || image->kind[pc-1] != 4))
 			fprintf(flat, " ; XLT88 TODO: COM %04x: unknown region follows; DB preserves bytes without classifying them as data\n", pc);
-		if (image->label[pc] || image->kind[pc] != 1) fprintf(flat, "l%04x: ", pc);
+		if (image->label[pc] || (image->kind[pc] != 1 &&
+		    (pc == com_origin || image->kind[pc-1] != image->kind[pc] ||
+		    image->kind[pc] == 3 || image->note[pc]))) fprintf(flat, "l%04x: ", pc);
 		else fputc(' ', flat);
-		if (image->kind[pc] == 2 || image->kind[pc] == 4) fprintf(flat, "db %u", image->bytes[pc]);
+		if (bytes) {
+			fputs("db ", flat);
+			for (unsigned i = 0; i < width; ++i)
+				fprintf(flat, "%s%u", i ? "," : "", image->bytes[pc+i]);
+		}
 		else if (image->kind[pc] == 3) {
 			unsigned address = image->bytes[pc] | (image->bytes[pc+1] << 8);
 			if (!address_text(image, address, operand)) goto invalid;
@@ -344,6 +359,7 @@ read_image(FILE *binary, FILE *map, FILE *draft, source_program_t *source, FILE 
 			}
 		}
 		fputc('\n', flat);
+		pc += width;
 	}
 	if (image->label[image->end]) fprintf(flat, "l%04x:\n", image->end);
 	fputs(" end\n", flat);
