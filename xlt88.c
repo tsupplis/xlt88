@@ -110,8 +110,8 @@ usage(FILE *out)
 	    "\nOutput: .a86 selects ASM86; .asm and other extensions select NASM.\n"
 	    "Explicit --emit takes precedence. Extensions never select the OS or input reader.\n"
 	    "COM without --com-map discovers candidate code and writes output-stem.map.\n"
-	    "The selected emitter writes the requested output, marked as a draft (exit 2).\n"
-	    "Use --emit=asm80 for recovered CP/M ASM; review the map before native use.\n"
+	    "Automatic COM recovery is experimental; native emission requires a reviewed map.\n"
+	    "Use --emit=asm80 only to inspect the recovered source (exit 2, incomplete).\n"
 	    "Exit codes: 0 translated, 1 error, 2 draft output written and review required.\n", out);
 }
 
@@ -223,6 +223,10 @@ main(int argc, char *argv[])
 		 * requirement. The user can rerun with --emit=asm80 to inspect it. */
 		if (rename(map_temp, map_path)) { perror(map_path); goto cleanup; }
 		fprintf(stderr, "xlt88: draft map written to %s; classification requires review\n", map_path);
+		if (!normalized) {
+			fputs("xlt88: COM recovery is incomplete; native output was not written. --emit=asm80 provides an inspection listing only, not a working translation\n", stderr);
+			goto cleanup;
+		}
 	}
 	for (size_t i = 0; i < program.file_count; ++i) {
 		if (same_path(program.files[i], output) || same_path(program.files[i], state_out)) {

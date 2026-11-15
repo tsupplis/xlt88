@@ -3,6 +3,11 @@
 Native 8080-to-8086/8088 source translation for CP/M-86 1.1 and PC DOS 1.0.
 No CP/M emulator or universal compatibility runtime.
 
+Translation assumes **static code**. Self-modifying code, generated instructions
+and runtime patching of instruction operands require explicit native ports.
+Writable data and pointer tables are different: their addresses and uses must
+still be understood and relocated correctly.
+
 ## Use
 
 ```sh
@@ -55,10 +60,12 @@ expansion and preferred names. Read it back using `--dialect=asm80`.
 ```
 
 COM discovery feeds the normal selected emitter: one requested assembly output,
-plus the analysis map. There is no additional `.80` file. Without a reviewed
-map, successful emission returns **2 (draft, review required)**, including native
-output. Exit 0 means reviewed-map/text translation succeeded; 1 means an error.
-Complex COM files still need substantial review. See [COM limitations](com.md).
+plus the analysis map. Automatic COM recovery is **experimental**.
+Unreviewed recovery can be emitted only as ASM80 for inspection (exit **2**);
+Native emission is blocked (exit **1**) until a reviewed map is supplied.
+Exit 0 means reviewed-map/text translation succeeded; 1 means an error.
+Reviewed VTL-2 COM input now matches source-input execution on both targets and
+all four emitters. Complex COM files still need substantial review. See [COM limitations](com.md).
 
 ## xlt88 versus XLT86
 
@@ -68,29 +75,82 @@ stronger in integrated macro reading, DOS targeting and assembler choice.
 
 | Area | XLT86 | xlt88 | Advantage / consequence |
 | --- | --- | --- | --- |
-| Optimization analysis | Global register/flag liveness | Flag liveness, branch shortening and targeted OS/FCB analyses; no equivalent general register-liveness optimizer | **XLT86: broader optimization machinery**; output size/speed superiority still needs measurement |
+| Optimization analysis | Global register/flag liveness | Flag liveness, branch shortening and targeted OS/FCB analyses; no equivalent general register-liveness optimizer | **XLT86: smaller instruction streams in the three measured cases**; semantic and speed superiority are not established |
 | Optimization controls and inspection | Block traces and return-flag assumptions | No comparable user-facing trace or return-contract controls | **XLT86** for inspecting/tuning translation |
 | Memory models | Overlapping 8080 model, compact model and segment controls | Shared 8080-model layout; RMAC sections flattened; no compact-model output | **XLT86** for separate code/data layouts |
 | Macro programs | Requires externally expanded macro/repeat source | Built-in M80/MAC/RMAC expansion within documented subsets | **xlt88**: fewer preparation steps; unsupported dialect semantics must fail |
 | DOS targeting | No DOS backend documented | 25/39 source BDOS functions mapped to DOS, including FCB adapters | **xlt88**: a capability XLT86 does not provide; incomplete coverage remains |
 | Assembler choice | ASM86 output | NASM, ASM86, MASM 3, DRASM86 | **xlt88**: four usable toolchains |
 | Editable naming state | No comparable round-trip state documented | Export/import preferred labels and EQU names for unchanged source | **xlt88** for repeatable renaming |
-| Intermediate 8080 view | Pseudo-assembly listing | Re-readable normalized source after macro expansion and renaming | **xlt88** for feeding reviewed source back into translation |
-| COM binaries | No binary-input reader documented | Automatic draft map/listing, then reviewed-map translation; difficult binaries remain unresolved | **xlt88 has a facility, not a closed solution**; LADCONF is not yet translated |
+| COM binaries | No binary-input reader documented | Automatic draft map/listing, then reviewed-map translation; difficult binaries remain unresolved | **xlt88 has a facility, not a closed solution**; native output requires a reviewed map |
 | CP/M-86 correctness | Native translation, with manual patches needed in two supplied ports | 39/39 documented lowerings, with native-structure/segment and application assumptions still requiring review | **No demonstrated general winner**; function counts do not prove semantic equivalence |
 | CPU correctness | Reference application behavior available | Extensive instruction/flag regression, with an identified emulator dependency | **No demonstrated winner** without running the same CPU suite against both |
-| Application readiness | Working VTL-2 directly; working WASH15/DISK7 after patches | VTL-2 passes both targets/four assemblers; WASH has port boundaries; DISK7 generated runtime unvalidated | **XLT86-based ports currently ahead on DISK7**; VTL-2 shows practical parity on tested scenarios |
+| Application readiness | Working VTL-2 directly; working WASH15/DISK7 after patches | VTL-2 passes both targets/four assemblers; WASH has port boundaries; DISK7 explicit ES port matches browsing and copy checks | **Tested scenario parity**, with manual port boundaries remaining |
 
 XLT86 capabilities above come from its [1981 User's Guide](https://bitsavers.trailing-edge.com/pdf/digitalResearch/cpm/XLT86_Users_Guide_Sep81.pdf),
 sections 1–3; xlt88 claims come from current code and recorded tests. “Not
 documented” is limited to that version. VTL-2 checks expected result tokens,
-not exhaustive equivalence. No comparative size/speed benchmark is claimed.
+not exhaustive equivalence.
+
+Fresh XLT86 1.1 measurements use identical prepared ASM80 inputs, the same
+ASM86 assembler and GENCMD 8080 model. The supplied patched references remain
+separate runtime oracles. Counts below are instruction bytes from assembler
+listings, cross-checked with initialized H86 byte totals; no timing claim is made.
+
+| Program | Fresh XLT86 instruction bytes | xlt88 instruction bytes | Runtime comparison / adjustments |
+| --- | ---: | ---: | --- |
+| VTL-2 | 1,626 | 1,743 | Console and script transcripts match; no reference port edits |
+| WASH15 | 1,672 | 1,965 | Five scenarios match after XLT86 SS/interrupt and PNAME-access fixes; raw output has two assembly errors |
+| DISK7 | 3,440 | 3,937 | Browsing, free-space and copying match; XLT86 SS setup and five ES reads, xlt88 five ES reads |
+
+VTL-2 has 129 versus 12 bytes of ORG padding: both loaded spans round to 1,936
+bytes despite the instruction difference. WASH15 and DISK7 each add 15 initialized
+and 149 reserved bytes in xlt88's BDOS reset adapter; this implements source OS
+behaviour and must not be counted as gratuitous optimizer overhead. Reports
+separate instruction/data/reserve/ORG bytes and rounded load spans. DISK7's raw
+instruction counts are 3,429 / 3,932 before explicit target-port edits.
+
+DISK7 preparation expands MAC through the normalized emitter, renames seven
+symbols, restores the conditional CLRSCR code label, defers RINGBASE EQU, removes
+END's operand and splits DB strings. Both translators receive those same bytes.
+Reports record common-input/raw-XLT86 hashes and all explicit target adjustments.
+
+The first optimization removes a redundant LAHF when AH already contains the
+canonical flag image restored by SAHF. It saves one instruction byte in VTL-2
+and two in DISK7; WASH15 is unchanged. No memory access or register width changes.
+A subsequent redundant SAHF removal saves one more VTL byte. The
+[textual difference audit](compare.md) accounts for the net byte gap and
+classifies flag, register, OS-adapter and native-port differences in all three.
+
+Optimization priorities from the listings:
+1. Investigate flag preservation first: VTL-2 has 32/32 LAHF/SAHF instructions
+   from XLT86 versus 48/49 from xlt88. Remove saves only when unobservability is proved.
+2. Separate BDOS adapter and register-save costs from general register allocation;
+   WASH15/DISK7 differences include deliberately stronger OS lowering.
+3. Evaluate register substitutions only with explicit alias and byte-access contracts.
+
+These application comparisons **do not establish full register, memory or flag
+equivalence**. In particular, effects on both register halves, widened reads/writes,
+neighbouring bytes, odd addresses, fixed alignment and every observable 8080 flag
+(including auxiliary carry and PUSH PSW/DAA uses) remain constraints on optimization.
+Self-modifying/runtime-generated code is outside the automatic translation contract.
+A focused benchmark probe now checks `A=10h; SUI 1; PUSH PSW`: fresh XLT86
+1.1 produces accumulator/PSW `0F/16`, while the existing 8080 reference model
+expects `0F/06` and xlt88 matches it. This exposes an auxiliary-carry difference
+in that case; it is not a full comparative CPU validation. No optimization has
+been justified merely by XLT86 producing fewer bytes.
+
+Reproduce using `tests/vtlbench.py`, `tests/wash.py` and `tests/diskref.py`, each
+with an optional report path. Their shared `tests/xltref.py` runs fresh translation
+through `cpm_xlt86` (`XLT86` overrides the wrapper path).
 
 ## Tests and documentation
 
 `make test` runs regression; `make corpus` inventories examples; `make vtlbench`
 runs the VTL-2 comparison. Python 3 and the assembler/emulator tools above plus
 emu2 and bin2cmd must be on PATH. Overrides are in tests/toolrun.py.
+Normalized-source/VTL checks also use `cpm_asm80` (`ASM80` override);
+application comparisons require `cpm_xlt86` (`XLT86` override).
 Tests print results; a report-producing test accepts an optional output path,
 for example `python3 tests/vtlbench.py /tmp/vtlbench.md`. Normal tests do not
 recreate documentation. Keep repository Markdown within 800 lines total.

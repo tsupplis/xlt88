@@ -4,7 +4,8 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from toolrun import runner, assembler, gencmd, root, exe
+from toolrun import runner, assembler, gencmd, root, exe, cmd_span
+from xltref import fresh_compare
 
 source = root / 'examples/wash15.asm'
 reference = root / 'examples/ref/was15.a86'
@@ -21,6 +22,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert b'NUMBER OF ERRORS:   0' in log and b'ERROR NO:' not in log, log
     command([gencmd, 'wasref', '8080'])
     reference_size = (work / 'wasref.cmd').stat().st_size
+    report += [f'Reference loaded span: {cmd_span(work/"wasref.cmd")} bytes (includes data/padding).', '']
     contents = {'alpha.dat': b'ALPHA CONTENT\r\n\x1a', 'beta.dat': b'BETA CONTENT\r\n\x1a'}
     for name, data in contents.items():
         (work / name).write_bytes(data)
@@ -38,6 +40,11 @@ with tempfile.TemporaryDirectory() as directory:
         assert all((work / name).read_bytes() == data for name, data in contents.items())
         report.append(f'- {case}: passed; fixture files unchanged.')
         print('WASH reference', case, 'passed', flush=True)
+    fresh, same = fresh_compare(work, source, 'm80', 'wash', report)
+    for case, argument, keys, token in cases:
+        for name in (fresh, same):
+            assert execute(name, argument, input=keys, console=True) == baseline[case], (name, case)
+    report += ['Fresh XLT86 explicit port and identical-input xlt88 match all five reference transcripts.', '']
     report += ['', '## Unchanged-source translation', '',
                f'Reference CMD: {reference_size} bytes. Sizes include container/padding; they are not instruction counts.', '',
                '| Target | Result | CMD bytes | Size / reference |', '| --- | --- | ---: | ---: |']
@@ -48,7 +55,7 @@ with tempfile.TemporaryDirectory() as directory:
             assert output == baseline[case], (flavor, case, output, baseline[case])
             assert all((work / name).read_bytes() == data for name, data in contents.items())
         size = (work / 'wash.cmd').stat().st_size
-        report.append(f'| cpm86/{flavor} | all five reference transcripts match | {size} | {size / reference_size:.2f} |')
+        report.append(f'| cpm86/{flavor} | all five transcripts match; loaded span {cmd_span(work/"wash.cmd")} bytes | {size} | {size / reference_size:.2f} |')
         print('WASH cpm86', flavor, 'all reference transcripts match', flush=True)
     result = subprocess.run([str(exe), '--dialect=m80', '--target=msdos',
                              str(source), str(work / 'doswash.asm')], capture_output=True)

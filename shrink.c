@@ -148,6 +148,56 @@ word_step(const output_t *event)
 	     !strcmp(op->text, "dx") || !strcmp(op->text, "sp"));
 }
 
+/* LAHF fixes AH bits 1/3/5 to 1/0/0. Immediate changes confined to flag
+ * bits retain that representation, so SAHF followed by LAHF need not read
+ * it again. Do not infer anything through labels or other AH writers. */
+static int
+canonical_flags(const output_t *event)
+{
+	const operand_t *dst = &event->operands[0], *src = &event->operands[1];
+	if (dst->kind != operand_register || !same(dst->text, "ah") ||
+	    src->kind != operand_immediate || src->value < 0 || src->value > 255) return 0;
+	if (is_instruction(event, "xor")) return !(src->value & 0x2a);
+	if (is_instruction(event, "or")) return !(src->value & 0x28);
+	if (is_instruction(event, "and")) return (src->value & 2) != 0;
+	return 0;
+}
+
+static void
+reuse_flag_image(target_program_t *program)
+{
+	for (size_t i = 0; i < program->count; ++i) {
+		size_t cursor, following;
+		if (!is_instruction(&program->events[i], "lahf")) continue;
+		cursor = next(program, i);
+		while (cursor < program->count && canonical_flags(&program->events[cursor]))
+			cursor = next(program, cursor);
+		if (cursor == program->count || !is_instruction(&program->events[cursor], "sahf")) continue;
+		following = next(program, cursor);
+		if (following < program->count && is_instruction(&program->events[following], "lahf"))
+			clear_event(&program->events[following]);
+	}
+}
+
+/* A word step neither reads SAHF's flags nor changes AH. When another SAHF
+ * follows, only that final restore is observable. INC/DEC's OF is unchanged
+ * by either SAHF; labels, byte steps and other instructions stop the proof. */
+static void
+defer_flag_restore(target_program_t *program)
+{
+	for (size_t i = 0; i < program->count; ++i) {
+		size_t cursor;
+		if (!is_instruction(&program->events[i], "sahf")) continue;
+		cursor = next(program, i);
+		if (cursor == program->count || !word_step(&program->events[cursor])) continue;
+		do {
+			cursor = next(program, cursor);
+		} while (cursor < program->count && word_step(&program->events[cursor]));
+		if (cursor < program->count && is_instruction(&program->events[cursor], "sahf"))
+			clear_event(&program->events[i]);
+	}
+}
+
 /* LAHF establishes a canonical AH flag image. Consecutive word increments
  * and decrements can share that image: they neither read flags nor touch AH.
  * Labels and every other instruction terminate the proof. */
@@ -185,6 +235,8 @@ target_shrink(target_program_t *program)
 {
 	size_t i;
 	coalesce_flags(program);
+	reuse_flag_image(program);
+	defer_flag_restore(program);
 	for (i = 0; i < program->count; ++i) {
 		output_t *branch = &program->events[i];
 		int code = condition(branch);

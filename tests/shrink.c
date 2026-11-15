@@ -51,9 +51,57 @@ flag_fixture(const char *second, int removed)
 	target_destroy(&program);
 }
 
+static void
+image_fixture(const char *op, int mask, int label, int removed)
+{
+	target_program_t program = {0};
+	emitter_t out = target_builder(&program);
+	size_t read;
+	instruction(&out, "lahf", no_operand, no_operand);
+	instruction(&out, op, operand(operand_register, "ah"), value(operand_immediate, mask));
+	instruction(&out, "sahf", no_operand, no_operand);
+	if (label) emit(&out, output_label, "entry", value(operand_immediate, 1), no_operand);
+	read = program.count;
+	instruction(&out, "lahf", no_operand, no_operand);
+	assert(target_shrink(&program));
+	assert((program.events[read].kind == output_line_end) == removed);
+	assert(target_shrink(&program));
+	target_destroy(&program);
+}
+
+static void
+restore_fixture(const char *op, const char *reg, int label, int removed)
+{
+	target_program_t program = {0};
+	emitter_t out = target_builder(&program);
+	instruction(&out, "sahf", no_operand, no_operand);
+	instruction(&out, op, operand(operand_register, reg), no_operand);
+	if (label) emit(&out, output_label, "entry", value(operand_immediate, 1), no_operand);
+	instruction(&out, "sahf", no_operand, no_operand);
+	assert(target_shrink(&program));
+	assert((program.events[0].kind == output_line_end) == removed);
+	assert(program.events[program.count - 1].kind == output_instruction);
+	assert(target_shrink(&program));
+	target_destroy(&program);
+}
+
 int
 main(void)
 {
+	restore_fixture("inc", "bx", 0, 1);
+	restore_fixture("dec", "dx", 0, 1);
+	restore_fixture("inc", "ax", 0, 0);
+	restore_fixture("inc", "ah", 0, 0);
+	restore_fixture("rcl", "bx", 0, 0);
+	restore_fixture("inc", "bx", 1, 0);
+	image_fixture("xor", 16, 0, 1);
+	image_fixture("or", 16, 0, 1);
+	image_fixture("and", 239, 0, 1);
+	image_fixture("xor", 2, 0, 0);
+	image_fixture("or", 8, 0, 0);
+	image_fixture("and", 253, 0, 0);
+	image_fixture("mov", 16, 0, 0);
+	image_fixture("xor", 16, 1, 0);
 	flag_fixture("inc", 1);
 	flag_fixture("push", 0);
 	fixture(124, 0, 0, 1);

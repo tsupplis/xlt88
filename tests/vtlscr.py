@@ -47,6 +47,6 @@ with tempfile.TemporaryDirectory() as directory:
             for case, data, expected in cases:
                 output = check('vtlscr', case, data, expected)
                 # CP/M warm boot prints one final CR/LF; DOS INT 20h does not.
-            comparable = output + b'\r\n' if target == 'msdos' else output
-            assert comparable == baseline[case], (target, flavor, case, output, baseline[case])
+                comparable = output + b'\r\n' if target == 'msdos' else output
+                assert comparable == baseline[case], (target, flavor, case, output, baseline[case])
             print(target, flavor, 'stored programs, multi-record scripts, empty/missing files and EOF match xlt86', flush=True)

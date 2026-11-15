@@ -3,6 +3,24 @@ from pathlib import Path
 import tempfile
 from toolrun import runner
 source = ''' org 100h
+ lxi h,8000h
+ mvi a,10h
+ sui 1
+ dcx h
+ push psw
+ pop b
+ mov a,c
+ cpi 6
+ jnz failed
+ mov a,b
+ cpi 15
+ jnz failed
+ mov a,h
+ cpi 7fh
+ jnz failed
+ mov a,l
+ cpi 0ffh
+ jnz failed
  mvi a,10h
  sui 1
  jz failed

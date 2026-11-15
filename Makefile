@@ -1,5 +1,5 @@
 PROG =	xlt88
-OBJS = comread.o rmac.o conbuf.o storage.o reset.o fcbdef.o fcbaddr.o flags.o mexpr.o macro.o m80.o mac.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o regions.o norm8080.o \
+OBJS = comhint.o comread.o rmac.o conbuf.o storage.o reset.o fcbdef.o fcbaddr.o flags.o mexpr.o macro.o m80.o mac.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o regions.o norm8080.o \
 	osrecog.o trans.o emitter.o target.o shrink.o nasm.o asm86.o asmfmt.o masm.o drasm86.o msdos.o cpm86.o
 PYTHON = python3
 
@@ -181,4 +181,5 @@ conbuf.o msdos.o: conbuf.h emitter.h
 
 rmac.o mac.o m80.o dialect.o: dialect.h
 comread.o xlt88.o: comread.h
+comread.o comhint.o: comhint.h
 comread.o: dialect.h

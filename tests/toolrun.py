@@ -21,6 +21,33 @@ def assemble(source):
     return binary.read_bytes()
 
 
+def hex_image(path):
+    """Load an ASM80 Intel HEX image, filling omitted ORG/DS storage with zero."""
+    memory = {}
+    for line in path.read_text().split('\x1a')[0].splitlines():
+        if not line.startswith(':'):
+            continue
+        record = bytes.fromhex(line[1:])
+        assert len(record) == record[0]+5 and sum(record) % 256 == 0
+        assert record[3] in (0, 1)
+        if record[3] == 0:
+            address = int.from_bytes(record[1:3], 'big')
+            for offset, value in enumerate(record[4:4+record[0]]):
+                assert address+offset not in memory
+                memory[address+offset] = value
+    assert memory and min(memory) == 0x100 and max(memory) < 0x10000
+    return bytes(memory.get(address, 0) for address in range(0x100, max(memory)+1))
+
+
+def cmd_span(path):
+    """8080-model loaded span, excluding CMD header and base page, not BSS/padding."""
+    image = path.read_bytes()
+    assert len(image) >= 384 and image[0] == 1 and image[9] == 0
+    size = int.from_bytes(image[1:3], 'little') * 16
+    assert 256 <= size <= len(image)-128
+    return size-256
+
+
 def source_case(source, output, dialect='m80'):
     """Shared parser invocation with atomic-rejection checks."""
     def run(text, *args, ok=True):

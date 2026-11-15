@@ -1,9 +1,6 @@
-xlt886
-8088ify
-8088ify.core
-8088ify.o
 out.asm
 /xlt88
+/xlt86
 /*.o
 /tests/iface
 .DS*

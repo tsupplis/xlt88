@@ -191,7 +191,8 @@ append(text_buffer_t *out, const char *text)
 static void
 source_expression(text_buffer_t *out, const expr_t *tree)
 {
-	static const char *const operators[] = {"+", "-", "*", "/", "%", " AND ", "|", "^", "<<", ">>", "~", " EQ ", " NE ", " LT ", " LE ", " GT ", " GE "};
+	/* This is ASM80 source, not the expression parser's C-style aliases. */
+	static const char *const operators[] = {"+", "-", "*", "/", " MOD ", " AND ", " OR ", " XOR ", " SHL ", " SHR ", "NOT ", " EQ ", " NE ", " LT ", " LE ", " GT ", " GE "};
 	switch (tree->kind) {
 	case expr_integer: case expr_string: case expr_symbol: case expr_location:
 		append(out, tree->text);
@@ -220,6 +221,12 @@ symbols_text(const symbol_table_t *table, const char *text, char *out, size_t ca
 	expr_t *tree = expr_parse(text, preferred_name, (void *)table, 1, &error);
 	if (!tree || !capacity) { expr_destroy(tree); return 0; }
 	source_expression(&buffer, tree);
+	/* A whole operand needs no outer grouping. Besides readability, this
+	 * avoids legacy translators treating a parenthesized address as a name. */
+	if (!buffer.failed && (tree->kind == expr_unary || tree->kind == expr_binary)) {
+		memmove(out, out+1, buffer.used-2);
+		out[buffer.used-2] = 0;
+	}
 	expr_destroy(tree);
 	return !buffer.failed;
 }

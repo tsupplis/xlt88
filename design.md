@@ -21,6 +21,7 @@ is immutable and may be lowered independently for both OS targets.
 | --- | --- |
 | dialect/m80/mac/rmac: source_read | Borrow stream/path; expand into owned source_program_t |
 | comread: com_read / com_analyze | Reviewed-map decoding / draft discovery; borrowed streams, owned source records |
+| comhint | Bounded literal/register/stack hints; candidate discovery only, never native execution |
 | symbols/state/layout | Shared names, EQU trees, source addresses and validated state |
 | norm8080: emit_named_8080 | Borrow source/symbols; emit normalized CP/M ASM source |
 | osrecog / flags / regions / fcb* | Owned conservative analysis plans; no application-name rules |
