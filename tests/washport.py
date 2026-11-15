@@ -189,8 +189,6 @@ with tempfile.TemporaryDirectory() as directory:
         report.append(f'| {flavor} | {count} exact-byte cases passed | overflow rejected; files unchanged |')
         print(flavor, count, 'native allocation copy/replace cases and directory bound passed', flush=True)
 assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
-report += ['', 'Copy/replace cases cover empty, one-record and 513-record files at image size + 256 bytes, 16 KiB and 64 KiB allocations.',
-           'The port enables interrupts after selecting the program stack, reads the native code-group limit, bounds directory appends with one record reserved, and computes capacity by subtraction/division.',
-           'The one-byte conservative limit follows the maintained port. BDOS read/write failure cleanup and DOS FCB conversion remain separate work.']
+
 if len(sys.argv) > 1:
     Path(sys.argv[1]).write_text('\n'.join(report) + '\n')

@@ -2,16 +2,13 @@
 """Translated CP/M-86 directory and random-record operations."""
 import os
 from pathlib import Path
-import subprocess
 import tempfile
 
-root = Path(__file__).resolve().parent.parent
-emu = os.environ.get('EMU2', 'emu2')
-packer = os.environ.get('BIN2CMD', 'bin2cmd')
-env = dict(os.environ, EMU2_CPM_VER='2.2')
+from toolrun import runner
 
 with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
+    _, build, run_program = runner(work, 'cpm86')
 
     def execute(name, body, data, run=True):
         source = '''        org 100h
@@ -42,16 +39,13 @@ stacktop:
                 lines[index] = line.replace(' failed', f' bad{number}')
                 stubs += f'bad{number}: lxi d, msg{number}\n        jmp print\nmsg{number}: db "FAIL {number}$"\n'
         source = '\n'.join(lines).replace('okay:   db', stubs + 'okay:   db') + '\n'
-        (work / (name + '.80')).write_text(source)
-        subprocess.run([str(root / 'xlt88'), '--target=cpm86', name + '.80', name + '.asm'], cwd=work, check=True)
-        subprocess.run(['nasm', '-Werror', '-f', 'bin', name + '.asm', '-o', name + '.bin'], cwd=work, check=True)
-        subprocess.run([packer, name + '.bin', name + '.cmd'], cwd=work, check=True, capture_output=True)
+        build(name, source, 'nasm')
         if not run:
             assembly = (work / (name + '.asm')).read_text()
             assert 'mov cl, 40' in assembly and 'int 0e0h' in assembly
             return
-        result = subprocess.run([emu, name + '.cmd'], cwd=work, env=env, capture_output=True, timeout=20)
-        assert result.returncode == 0 and b'TEST OK' in result.stdout, (name, result.stdout, result.stderr, checks)
+        output = run_program(name, timeout=20)
+        assert b'TEST OK' in output, (name, output, checks)
 
     def call(n, check='zero'):
         text = f'        lxi d, file\n        mvi c, {n}\n        call 5\n'

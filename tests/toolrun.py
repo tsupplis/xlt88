@@ -13,6 +13,28 @@ gencmd = os.environ.get('GENCMD', 'cpm86_gencmd')
 emu = os.environ.get('EMU2', 'emu2')
 env = dict(os.environ, EMU2_CPM_VER='2.2', EMU2_DOSVER='1.0')
 
+def assemble(source):
+    """Assemble a parser fixture for exact byte comparison."""
+    binary = source.with_suffix('.bin')
+    subprocess.run([os.environ.get('NASM', 'nasm'), '-Werror', '-f', 'bin',
+                    str(source), '-o', str(binary)], check=True)
+    return binary.read_bytes()
+
+
+def source_case(source, output, dialect='m80'):
+    """Shared parser invocation with atomic-rejection checks."""
+    def run(text, *args, ok=True):
+        source.write_text(text)
+        output.write_text('preserve')
+        result = subprocess.run([str(exe), '--dialect='+dialect, *args,
+                                 str(source), str(output)], capture_output=True)
+        assert (result.returncode == 0) == ok, result.stderr.decode()
+        if not ok:
+            assert output.read_text() == 'preserve'
+        return result.stderr.decode()
+    return run, lambda: assemble(output)
+
+
 def runner(work, target):
     def command(args, execution=False, codes=(0,), input=None, timeout=60):
         # Legacy wrappers spawn emulator/tee children. Bound the whole command

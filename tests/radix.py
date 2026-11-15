@@ -1,26 +1,14 @@
 #!/usr/bin/env python3
 """M80 source radix snapshots, macro formatting and textual NUL."""
-import os
 from pathlib import Path
 import subprocess
 import tempfile
-root = Path(__file__).resolve().parent.parent
-exe = Path(os.environ.get('XLT88', root/'xlt88'))
+from toolrun import exe, source_case
 with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
     source, output, state = work/'main.mac', work/'out.asm', work/'names.sym'
-    def run(text, *args, ok=True):
-        source.write_text(text)
-        output.write_text('preserve')
-        result = subprocess.run([str(exe), '--dialect=m80', *args, str(source), str(output)], capture_output=True)
-        assert (result.returncode == 0) == ok, result.stderr.decode()
-        if not ok:
-            assert output.read_text() == 'preserve'
-        return result.stderr.decode()
-    def binary():
-        dest = work/'out.bin'
-        subprocess.run(['nasm', '-Werror', '-f', 'bin', str(output), '-o', str(dest)], check=True)
-        return dest.read_bytes()
+    run, binary = source_case(source, output)
+
     text = '''emit MACRO arg
  db '&arg'
  ENDM

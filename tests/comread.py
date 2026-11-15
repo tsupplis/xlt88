@@ -15,6 +15,16 @@ with tempfile.TemporaryDirectory() as directory:
     binary = bytes.fromhex('110b010e09cd0500c30000') + b'COM OK$'
     annotations = 'code 100 10b\ndata 10b 112\nptr 100\n'
 
+    # CLI contract failures explain the missing/inapplicable option before I/O.
+    for options, message in (
+        (['--dialect=com'], b'COM input requires --com-map='),
+        (['--com-map='+str(mapping)], b'--com-map is only valid with --dialect=com'),
+    ):
+        output.write_text('preserve')
+        result = subprocess.run([str(exe), *options, str(source), str(output)], capture_output=True)
+        assert result.returncode == 1 and message in result.stderr, result
+        assert output.read_text() == 'preserve'
+
     def run(data=binary, layout=annotations, *options, ok=True):
         source.write_bytes(data)
         mapping.write_text(layout)

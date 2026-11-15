@@ -1,29 +1,22 @@
 #!/usr/bin/env python3
 """Execute automatically translated CP/M-80 file operations on CP/M-86."""
-import os
 from pathlib import Path
 import subprocess
 import tempfile
 
-root = Path(__file__).resolve().parent.parent
-emu = os.environ.get('EMU2', 'emu2')
-packer = os.environ.get('BIN2CMD', 'bin2cmd')
-env = dict(os.environ, EMU2_CPM_VER='2.2', EMU2_DOSVER='1.0')
+from toolrun import root, exe, runner
 
 with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
 
+    _, native_build, native_execute = runner(work, 'cpm86')
+
     def build(name, text):
-        source = work / (name + '.80')
-        source.write_text(text)
-        subprocess.run([str(root / 'xlt88'), '--target=cpm86', str(source), str(work / (name + '.asm'))], check=True)
-        subprocess.run(['nasm', '-Werror', '-f', 'bin', name + '.asm', '-o', name + '.bin'], cwd=work, check=True)
-        subprocess.run([packer, name + '.bin', name + '.cmd'], cwd=work, check=True, capture_output=True)
+        native_build(name, text, 'nasm')
 
     def execute(name, *args, expected):
-        result = subprocess.run([emu, name + '.cmd', *args], cwd=work, env=env,
-                                capture_output=True, timeout=20)
-        assert result.returncode == 0 and expected in result.stdout, (name, result.stdout, result.stderr)
+        output = native_execute(name, *args, timeout=20)
+        assert expected in output, (name, output)
 
     copy = (root / 'tests/copy.asm').read_text()
     # Check the documented byte result in both source registers after every
@@ -38,7 +31,7 @@ with tempfile.TemporaryDirectory() as directory:
 
     build('copy', copy)
     # The removed layout assertion must remain unavailable.
-    result = subprocess.run([str(root / 'xlt88'), '--target=msdos', '--fcb=dos',
+    result = subprocess.run([str(exe), '--target=msdos', '--fcb=dos',
                              str(work / 'copy.80'), str(work / 'bad.asm')], capture_output=True)
     assert result.returncode and b'usage:' in result.stderr
 

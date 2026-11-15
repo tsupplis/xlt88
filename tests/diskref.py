@@ -58,10 +58,8 @@ with tempfile.TemporaryDirectory() as directory:
         report.append(f'| {flavor} | {outcome} |')
         print('DISK7', flavor, outcome, flush=True)
         detail = diagnostics
-    report += ['', 'Representative diagnostics:', '', '```text', detail.rstrip(), '```', '',
-               'Generated DISK7 is not executed: pointer segments, BIOS access and exit/stack assumptions still require review. No transcript equivalence is claimed.',
-               'Function 46 now passes through natively. The version-dependent branch is retained; its native availability and semantics remain the responsibility of the port author.',
-               'The reference ES overrides remain deliberate target adjustments, not application-specific translator rules.']
+    report += ['', 'Representative diagnostics:', '```text', detail.rstrip(), '```']
+
 assert all(hashlib.sha256(p.read_bytes()).hexdigest() == digest for p, digest in hashes.items())
 if len(sys.argv) > 1:
     Path(sys.argv[1]).write_text('\n'.join(report) + '\n')

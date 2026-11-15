@@ -84,10 +84,8 @@ with tempfile.TemporaryDirectory() as directory:
         setup(payload=payload)
         execute(name, 'alpha.dat', input=b'CBX', timeout=10)
         assert snapshot() == ({'alpha.dat': payload, 'beta.dat': b'B'*128}, {'alpha.dat': payload}), name
-    report += ['', 'ASM86, MASM3 and DRASM86 also copy 513 records with exact bytes and source preservation. This is independent expected-result acceptance, not reference equivalence.', '', 'Copy probes check expected destination bytes independently; a reference timeout is never counted as a transcript match.',
-               'Both sources retain the BDOS+1 memory-limit lookup and an unchecked 16-bit buffer-growth loop.',
-               'A native allocation-aware port needs separate acceptance; the maintained sibling port is not substituted here.',
-               'Console-buffer input uses stdin for these cases because this emulator handles BDOS 10 separately from its key-script input.']
+    report += ['', '513-record copies also pass on ASM86/MASM3/DRASM86; reference timeouts are not equivalence passes.']
+
 assert all(hashlib.sha256(p.read_bytes()).hexdigest() == h for p,h in hashes.items())
 if len(sys.argv) > 1:
     Path(sys.argv[1]).write_text('\n'.join(report)+'\n')

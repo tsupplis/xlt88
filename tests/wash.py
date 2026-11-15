@@ -55,14 +55,8 @@ with tempfile.TemporaryDirectory() as directory:
     diagnostics = result.stderr.decode()
     assert result.returncode and 'FCB' in diagnostics, diagnostics
     report.append('| msdos | blocked by FCB representation; no execution claimed | — | — |')
-    report += ['', '```text', diagnostics.rstrip(), '```', '',
-               '## Remaining porting work', '',
-               '- Interrupt policy: the original disables interrupts; the patched reference explicitly enables them after stack setup. Original DI is preserved. Emulator transcript passes do not validate hardware interrupt policy.',
-               '- Selector dispatch uses direct-store candidates with checks on every arm. Unmatched CP/M-86 selectors use warned native pass-through; no memory alias proof is claimed.',
-               '- Native reset/select/DMA/search implement reset without simulated drive state. Reset state tests live in allreset.py; protected-drive state still needs emulator support.',
-               '- Inline strings and code-label data access are exercised by these transcripts. Seven additional file-operation/cancellation comparisons are in washfile.md; successful copy has separate reference limitations. Devices and drive-switch workflows remain.',
-               '- DOS needs directory-result and explicit FCB-field translation.',
-               '', 'No program-name exception or source patch has been added.']
+    report += ['', 'DOS diagnostic:', '```text', diagnostics.rstrip(), '```']
+
 assert all(hashlib.sha256(path.read_bytes()).hexdigest() == digest for path, digest in hashes.items())
 if len(sys.argv) > 1:
     Path(sys.argv[1]).write_text('\n'.join(report) + '\n')

@@ -80,4 +80,5 @@ with tempfile.TemporaryDirectory() as directory:
             (work/'old.dat').unlink()
         (work/'new.dat').unlink()
         print(flavor+': DOS delete/wildcard/missing/rename, A=L and guards passed',flush=True)
-print('Rename collision: execution unverified unless DOS_RENAME=1; native DOS rejects destination collisions')
+print('Rename collision: ' + ('execution passed' if os.environ.get('DOS_RENAME') == '1'
+                              else 'execution unverified (DOS_RENAME=1 enables the strict check)'))
