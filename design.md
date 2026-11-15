@@ -20,9 +20,9 @@ is immutable and may be lowered independently for both OS targets.
 | Module / entry | Contract |
 | --- | --- |
 | dialect/m80/mac/rmac: source_read | Borrow stream/path; expand into owned source_program_t |
-| comread: com_read | Borrow binary/map streams; return the same source representation |
+| comread: com_read / com_analyze | Reviewed-map decoding / draft discovery; borrowed streams, owned source records |
 | symbols/state/layout | Shared names, EQU trees, source addresses and validated state |
-| norm8080: emit_named_8080 | Borrow source/symbols; emit normalized Intel source |
+| norm8080: emit_named_8080 | Borrow source/symbols; emit normalized CP/M ASM source |
 | osrecog / flags / regions / fcb* | Owned conservative analysis plans; no application-name rules |
 | trans: lower_named | Borrow source/symbols/backend; build owned target_program_t |
 | cpm86/msdos/reset/conbuf | Native service ABI and stack/buffer adapters |

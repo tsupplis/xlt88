@@ -21,7 +21,7 @@ for alias in ./source.80 hardlink.asm symlink.asm; do
 done
 
 for target in msdos cpm86; do
-    "$root/xlt88" --target="$target" --dialect=intel "$root/examples/hello.asm" hello.asm
+    "$root/xlt88" --target="$target" --dialect=asm80 "$root/examples/hello.asm" hello.asm
     nasm -f bin hello.asm -o hello.com
     program=hello.com
     if [ "$target" = cpm86 ]; then

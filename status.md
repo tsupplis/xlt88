@@ -5,7 +5,7 @@ CLOSED applies to the documented contract; reopen for defects or agreed scope.
 | Feature | Status / boundary |
 | --- | --- |
 | Parser → translator → emitter | CLOSED modular interfaces |
-| Intel / M80 / MAC | CLOSED source subsets; inputs.md |
+| ASM80 / M80 / MAC | CLOSED source subsets; inputs.md |
 | RMAC | CLOSED single-module contract; no REL linking |
 | 8080 instructions | CLOSED native translation; RST 0 exits, RST 1–7 require monitor ports |
 | NASM / ASM86 / MASM 3 / DRASM86 | CLOSED, both targets |
@@ -13,7 +13,7 @@ CLOSED applies to the documented contract; reopen for defects or agreed scope.
 | Labels / EQU naming state | CLOSED for unchanged source; labels.md |
 | CP/M-86 native BDOS lowerings | CLOSED, 39/39 entries; api.md lists runtime/port exceptions |
 | DOS BDOS mapping | PARTIAL, 25/39; directory search and broader FCB semantics remain |
-| Annotated COM | INITIAL implementation; real-program acceptance next |
+| COM input | OPEN: automatic draft map/listing and reviewed-map translation; LADCONF recovery incomplete |
 | State rebinding / assembler-map import | DEFERRED |
 | REL linking / CMD allocation policy | DEFERRED |
 
@@ -46,5 +46,5 @@ was15.a86 and disk7.a86 include manual SS/interrupt/label-access/far-pointer
 patches. Those patches are not generic translator rules. WASH reduced-memory
 tests simulate base-page limits with canaries, not actual CMD allocation.
 
-Next: one real annotated COM program, DOS search/FCB semantics, then explicit
+Next: one real COM program through discovery and reviewed translation, DOS search/FCB semantics, then explicit
 DISK7 runtime comparison. Assembly success is not runtime equivalence.

@@ -60,7 +60,7 @@ END
         flat.write_text('count equ 2\n mvi b,3\n mvi a,7\n jmp 0\n end\n')
         subprocess.run([str(exe), '--target='+target, str(flat), str(output)], check=True)
         assert binary(output) == actual
-    run('--emit=8080', '--state-out='+str(state))
+    run('--emit=asm80', '--state-out='+str(state))
     normalized = output.read_text()
     assert 'missing.inc' not in normalized and 'undefined_opcode' not in normalized
     flat = work/'flat.asm'
@@ -103,21 +103,21 @@ END
     binary(output)
     # Historical label spelling must not swallow DW/RST as an IFF condition.
     source.write_text("jmp done\nIFF DW DOCOL\nDOCOL: dw 1234h\ndone: jmp 0\nend\n")
-    run('--emit=8080')
+    run('--emit=asm80')
     assert 'IFF:' in output.read_text() and 'dw DOCOL' in ' '.join(output.read_text().split())
     for target in ('msdos', 'cpm86'):
         run('--target='+target)
         binary(output)
     source.write_text("IFF RST 3\nend\n")
-    run('--emit=8080')
+    run('--emit=asm80')
     assert 'IFF:' in output.read_text() and 'rst 3' in ' '.join(output.read_text().split())
     # Opcode-named symbols remain valid conditional operands, indented or not.
     source.write_text("DW EQU 1\nIFF DW-1\n mvi a,7\nENDIF\nIF DW EQ 1\n mvi b,3\nENDIF\n IFF DW-1\n mvi d,9\n ENDIF\njmp 0\nend\n")
-    run('--emit=8080')
+    run('--emit=asm80')
     assert all(value in ' '.join(output.read_text().split()) for value in ('mvi a,7', 'mvi b,3', 'mvi d,9'))
     source.write_text("IF 0\nIFF DW absent\nENDIF\njmp 0\nend\n")
-    run('--emit=8080')
+    run('--emit=asm80')
     assert 'absent' not in output.read_text()
     source.write_text(" IFF DW DOCOL\nENDIF\nend\n")
-    assert 'previously defined' in run('--emit=8080', ok=False)
+    assert 'previously defined' in run('--emit=asm80', ok=False)
 print('M80 nested conditions/includes, provenance, state invalidation and source protection passed')

@@ -38,7 +38,7 @@ error: db 'FAILED$'
 
 with tempfile.TemporaryDirectory() as directory:
     work = Path(directory)
-    for dialect, flavor in product(('intel', 'm80', 'mac', 'rmac'), ('8080', 'nasm')):
+    for dialect, flavor in product(('asm80', 'm80', 'mac', 'rmac'), ('asm80', 'nasm')):
         for instruction in bad:
             (work/'bad.80').write_text(' '+instruction+'\n end\n')
             (work/'out.asm').write_text('preserve')

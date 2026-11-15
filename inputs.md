@@ -3,9 +3,9 @@
 All source readers feed the same pipeline. Closed means the following contract,
 not every historical assembler extension. Unsupported syntax must diagnose.
 Text accepts LF/CRLF/CR, final lines without newline and Ctrl-Z EOF; NUL and
-lines over 254 characters reject. Normalized output round-trips through Intel.
+lines over 254 characters reject. Normalized output round-trips through ASM80.
 
-## Intel
+## ASM80 (CP/M ASM)
 
 Column-one labels or explicit colon labels; indented operations. Optional
 initial ORG 100h. DB/DW/DS/EQU and standalone power-of-two ALIGN 1..256.

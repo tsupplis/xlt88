@@ -83,29 +83,29 @@ second: mvi a,7
         actual = binary()
         subprocess.run([str(exe), '--target='+target, str(flat), str(output)], check=True)
         assert binary() == actual
-    run(text, '--emit=8080')
+    run(text, '--emit=asm80')
     flat.write_text(output.read_text())
     subprocess.run([str(exe), str(flat), str(output)], check=True)
 
     # EXITM propagates through included source to its expansion, but not beyond it.
     (work/'leave.inc').write_text(' db 1\n EXITM\n mystery\n')
-    run('REPT 3\n INCLUDE leave.inc\n mystery\nENDM\n db 2\n end\n', '--emit=8080')
+    run('REPT 3\n INCLUDE leave.inc\n mystery\nENDM\n db 2\n end\n', '--emit=asm80')
     assert output.read_text().count('db') == 2
 
     # Inactive blocks consume matching ENDM, without executing conditions inside.
-    run('IF 0\n REPT unknown\n ELSE\n IRP x,<1>\n ENDM\n ENDM\nENDIF\n db 4\n end\n', '--emit=8080')
+    run('IF 0\n REPT unknown\n ELSE\n IRP x,<1>\n ENDM\n ENDM\nENDIF\n db 4\n end\n', '--emit=asm80')
     assert output.read_text().count('db') == 1
-    run('REPT 1\n IF 0\n EXITM\n ENDIF\n db 4\nENDM\n end\n', '--emit=8080')
+    run('REPT 1\n IF 0\n EXITM\n ENDIF\n db 4\nENDM\n end\n', '--emit=asm80')
     assert output.read_text().count('db') == 1
 
     # Rejected macro operators in discarded code must not defeat EXITM/REPT 0.
-    run('skip MACRO\n REPT 0\n db &bad\n ENDM\n EXITM\n db &bad\n ENDM\n skip\n db 3\n end\n', '--emit=8080')
+    run('skip MACRO\n REPT 0\n db &bad\n ENDM\n EXITM\n db &bad\n ENDM\n skip\n db 3\n end\n', '--emit=asm80')
     assert output.read_text().count('db') == 1
 
     # Comma-containing IRP elements are one substitution, including nested lists.
-    run("IRP item,<<1,2>,<'a,b',0>>\n db item\nENDM\n end\n", '--emit=8080')
+    run("IRP item,<<1,2>,<'a,b',0>>\n db item\nENDM\n end\n", '--emit=asm80')
     assert '1,2' in output.read_text() and "'a,b',0" in output.read_text()
-    run('IRP group,<<1,2>,<3,4>>\n IRP item,<group>\n db item\n ENDM\nENDM\n end\n', '--emit=8080')
+    run('IRP group,<<1,2>,<3,4>>\n IRP item,<group>\n db item\n ENDM\nENDM\n end\n', '--emit=asm80')
     assert output.read_text().count('db') == 4
 
     for text, expected in [

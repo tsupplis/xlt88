@@ -56,7 +56,7 @@ void source_report(FILE *, const source_record_t *, const char *);
 int emit_normalized_8080(const source_program_t *, FILE *, FILE *);
 void source_destroy(source_program_t *);
 
-extern const dialect_t intel_dialect;
+extern const dialect_t asm80_dialect;
 extern const dialect_t m80_dialect;
 extern const dialect_t mac_dialect;
 extern const dialect_t rmac_dialect;

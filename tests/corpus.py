@@ -28,9 +28,9 @@ with tempfile.TemporaryDirectory() as directory:
     for source in sorted(list((root / 'examples').glob('*.asm')) + list((root / 'examples').glob('*.mac'))):
         if source.name in outputs:
             continue
-        dialect = readers.get(source.name, 'intel')
+        dialect = readers.get(source.name, 'asm80')
         raw = source.read_bytes()
-        result = subprocess.run([str(exe), '--dialect='+dialect, '--emit=8080', str(source), str(work/'norm.asm')], capture_output=True, text=True)
+        result = subprocess.run([str(exe), '--dialect='+dialect, '--emit=asm80', str(source), str(work/'norm.asm')], capture_output=True, text=True)
         normalized = result.returncode == 0
         errors = []
         if not normalized:

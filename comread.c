@@ -6,10 +6,11 @@ enum { com_origin = 0x100, com_limit = 0x10000 };
 
 typedef struct com_image {
 	unsigned char bytes[com_limit];
-	unsigned char kind[com_limit]; /* 1: code, 2: bytes, 3: pointer words. */
+	unsigned char kind[com_limit]; /* 1: code, 2: bytes, 3: pointers, 4: unknown. */
 	unsigned char pointer[com_limit]; /* LXI sites explicitly holding pointers. */
 	unsigned char width[com_limit]; /* Nonzero only at record boundaries. */
 	unsigned char label[com_limit + 1];
+	const char *note[com_limit];
 	unsigned end;
 } com_image_t;
 
@@ -135,6 +136,10 @@ read_map(FILE *map, com_image_t *image, FILE *diagnostics)
 		fields = sscanf(line, "%15s %31s %31s %c", command, start, end, &extra);
 		if (fields == EOF) continue;
 		if (fields < 2 || !hex_address(start, &first)) goto invalid;
+		if (!strcmp(command, "unknown")) {
+			fprintf(diagnostics, "xlt88: COM map line %u: unresolved unknown range; review the ASM80 output and classify it as code, data or word\n", number);
+			return 0;
+		}
 		if (fields == 2 && !strcmp(command, "ptr")) {
 			if (first < com_origin || first >= image->end || image->pointer[first]) goto invalid;
 			image->pointer[first] = 1;
@@ -163,8 +168,88 @@ address_text(const com_image_t *image, unsigned address, char text[32])
 	return 1;
 }
 
-int
-com_read(FILE *binary, FILE *map, source_program_t *source, FILE *diagnostics)
+/* A bounded work list follows direct transfers only. Bytes not reached remain
+ * unknown, not data: they may contain indirect entry points or pointer tables.
+ * A call's fall-through is a candidate too; inline return-address data still
+ * requires human review. No register-value guessing is used for PCHL or LXI. */
+static int
+discover(com_image_t *image, FILE *map, FILE *diagnostics)
+{
+	unsigned *queue = malloc(com_limit * sizeof(*queue));
+	unsigned char *queued = calloc(com_limit, 1);
+	unsigned head = 0, tail = 0, code = 0;
+	if (!queue || !queued) { free(queue); free(queued); return 0; }
+	queue[tail++] = com_origin;
+	queued[com_origin] = 1;
+	while (head < tail) {
+		unsigned pc = queue[head++];
+		while (pc < image->end) {
+			com_instruction_t instruction;
+			unsigned op = image->bytes[pc], width, i, destination = 0;
+			int transfer = op == 0xc3 || op == 0xcd ||
+			    (op >= 0xc0 && ((op & 7) == 2 || (op & 7) == 4));
+			if (image->kind[pc]) {
+				if (!image->width[pc]) image->note[pc] = "control flow enters an instruction operand; resolve overlapping code";
+				break;
+			}
+			if (!decode(image->bytes + pc, &instruction) || instruction.width > image->end - pc) {
+				image->note[pc] = "reachable invalid or truncated 8080 instruction; check CPU dialect and code boundary";
+				break;
+			}
+			width = instruction.width;
+			for (i = 0; i < width && !image->kind[pc+i]; ++i) {}
+			if (i != width) {
+				image->note[pc] = "instruction overlaps another discovered path; resolve code boundary";
+				break;
+			}
+			image->width[pc] = (unsigned char)width;
+			for (i = 0; i < width; ++i) image->kind[pc+i] = 1;
+			code += width;
+			if (width == 3) destination = image->bytes[pc+1] | (image->bytes[pc+2] << 8);
+			if (transfer && destination >= com_origin && destination < image->end && !queued[destination]) {
+				queue[tail++] = destination;
+				queued[destination] = 1;
+			}
+			if (transfer && destination != 0 && destination != 5 &&
+			    (destination < com_origin || destination >= image->end))
+				image->note[pc] = "transfer outside image; supply missing code or port the external entry";
+			if ((op & 0xcf) == 1 && destination >= com_origin)
+				image->note[pc] = "LXI may load an address; add ptr here if it is a pointer, otherwise retain the numeric constant";
+			if (op == 0xe9) image->note[pc] = "PCHL destination unknown; classify indirect entries and pointer tables";
+			if (op == 0xe3) image->note[pc] = "XTHL may access inline return-address data; review call fall-through classification";
+			if (op >= 0xcf && (op & 7) == 7) image->note[pc] = "RST monitor service requires a manual port";
+			if (op == 0xc3 || op == 0xc9 || op == 0xe9 || op == 0x76 ||
+			    (op >= 0xc7 && (op & 7) == 7) || (op == 0xcd && !destination)) break;
+			pc += width;
+			if (pc == image->end) image->note[pc-width] = "execution falls beyond image; review missing code or termination";
+		}
+	}
+	free(queue);
+	free(queued);
+	fputs("# Draft discovery, not a verified layout. Addresses are hexadecimal.\n"
+	    "# Review code, replace unknown ranges with code/data/word, add ptr at pointer LXI sites.\n"
+	    "# Calls may have inline data; computed entries and self-modification are not recovered.\n", map);
+	for (unsigned pc = com_origin; pc < image->end;) {
+		unsigned end = pc + 1;
+		while (end < image->end && image->kind[end] == image->kind[pc]) ++end;
+		fprintf(map, "%s %04x %04x\n", image->kind[pc] ? "code" : "unknown", pc, end);
+		pc = end;
+	}
+	for (unsigned pc = com_origin; pc < image->end; ++pc) {
+		if (image->note[pc]) fprintf(map, "# %04x: %s\n", pc, image->note[pc]);
+		if (!image->kind[pc]) {
+			image->width[pc] = 1;
+			/* Kind 4 is unknown; DB is only its lossless review representation. */
+			image->kind[pc] = 4;
+		}
+	}
+	fprintf(diagnostics, "xlt88: COM analysis: %u candidate code bytes, %u unknown bytes; review required\n",
+	    code, image->end - com_origin - code);
+	return !ferror(map);
+}
+
+static int
+read_image(FILE *binary, FILE *map, FILE *draft, source_program_t *source, FILE *diagnostics)
 {
 	com_image_t *image = calloc(1, sizeof(*image));
 	FILE *flat = NULL;
@@ -178,10 +263,12 @@ com_read(FILE *binary, FILE *map, source_program_t *source, FILE *diagnostics)
 		fputs("xlt88: COM image must contain 1..65280 bytes\n", diagnostics);
 		goto done;
 	}
-	if (!read_map(map, image, diagnostics)) goto done;
+	if (draft) {
+		if (!discover(image, draft, diagnostics)) goto done;
+	} else if (!read_map(map, image, diagnostics)) goto done;
 	/* Establish every boundary before resolving direct addresses. Never decode
  * bytes marked as data, and never let an instruction cross an annotation. */
-	for (; pc < image->end;) {
+	for (; !draft && pc < image->end;) {
 		com_instruction_t instruction;
 		unsigned width = image->kind[pc] == 3 ? 2 : 1;
 		if (!image->kind[pc]) goto invalid;
@@ -197,7 +284,7 @@ com_read(FILE *binary, FILE *map, source_program_t *source, FILE *diagnostics)
 		image->width[pc] = (unsigned char)width;
 		pc += width;
 	}
-	if (image->kind[com_origin] != 1) { pc = com_origin; goto invalid; }
+	if (!draft && image->kind[com_origin] != 1) { pc = com_origin; goto invalid; }
 	image->label[com_origin] = 1;
 	/* Label referenced code boundaries only. Inventing a label at every
  * instruction would introduce false entry points for existing analyses. */
@@ -213,19 +300,29 @@ com_read(FILE *binary, FILE *map, source_program_t *source, FILE *diagnostics)
 		if (reference) {
 			char text[32];
 			unsigned address = image->bytes[operand] | (image->bytes[operand+1] << 8);
-			if (!address_text(image, address, text)) goto invalid;
+			if (!address_text(image, address, text)) {
+				if (!draft) goto invalid;
+				image->note[pc] = "address points inside an instruction; numeric operand retained for review";
+				continue;
+			}
 			if (address >= com_origin && address <= image->end) image->label[address] = 1;
 		}
 	}
 	flat = tmpfile();
 	if (!flat) goto done;
 	fputs(" org 100h\n", flat);
+	if (draft) fputs(" ; XLT88 TODO: discovery draft only; review map, pointers and code/data boundaries before translation\n", flat);
 	for (pc = com_origin; pc < image->end; pc += image->width[pc]) {
 		char operand[32];
 		unsigned width = image->width[pc];
+		/* Include notes on operand bytes too when a competing path lands there. */
+		for (unsigned i = 0; i < width; ++i)
+			if (image->note[pc+i]) fprintf(flat, " ; XLT88 TODO: COM %04x: %s\n", pc+i, image->note[pc+i]);
+		if (image->kind[pc] == 4 && (pc == com_origin || image->kind[pc-1] != 4))
+			fprintf(flat, " ; XLT88 TODO: COM %04x: unknown region follows; DB preserves bytes without classifying them as data\n", pc);
 		if (image->label[pc] || image->kind[pc] != 1) fprintf(flat, "l%04x: ", pc);
 		else fputc(' ', flat);
-		if (image->kind[pc] == 2) fprintf(flat, "db %u", image->bytes[pc]);
+		if (image->kind[pc] == 2 || image->kind[pc] == 4) fprintf(flat, "db %u", image->bytes[pc]);
 		else if (image->kind[pc] == 3) {
 			unsigned address = image->bytes[pc] | (image->bytes[pc+1] << 8);
 			if (!address_text(image, address, operand)) goto invalid;
@@ -238,7 +335,10 @@ com_read(FILE *binary, FILE *map, source_program_t *source, FILE *diagnostics)
 				unsigned value = image->bytes[pc+1];
 				if (width == 3) value |= image->bytes[pc+2] << 8;
 				if (instruction.reference || image->pointer[pc]) {
-					if (!address_text(image, value, operand)) goto invalid;
+					if (!address_text(image, value, operand)) {
+						if (!draft) goto invalid;
+						snprintf(operand, sizeof(operand), "%u", value);
+					}
 				} else snprintf(operand, sizeof(operand), "%u", value);
 				fprintf(flat, "%s%s", instruction.text[strlen(instruction.text)-1] == ',' ? "" : " ", operand);
 			}
@@ -249,7 +349,7 @@ com_read(FILE *binary, FILE *map, source_program_t *source, FILE *diagnostics)
 	fputs(" end\n", flat);
 	if (ferror(flat)) goto done;
 	rewind(flat);
-	result = source_read(&intel_dialect, flat, NULL, source);
+	result = source_read(&asm80_dialect, flat, NULL, source);
 	goto done;
 invalid:
 	fprintf(diagnostics, "xlt88: COM address %04x: unclassified byte, invalid opcode, split instruction or invalid pointer boundary\n", pc);
@@ -257,4 +357,16 @@ done:
 	if (flat) fclose(flat);
 	free(image);
 	return result;
+}
+
+int
+com_read(FILE *binary, FILE *map, source_program_t *source, FILE *diagnostics)
+{
+	return read_image(binary, map, NULL, source, diagnostics);
+}
+
+int
+com_analyze(FILE *binary, FILE *draft, source_program_t *source, FILE *diagnostics)
+{
+	return read_image(binary, NULL, draft, source, diagnostics);
 }

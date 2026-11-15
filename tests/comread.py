@@ -15,15 +15,64 @@ with tempfile.TemporaryDirectory() as directory:
     binary = bytes.fromhex('110b010e09cd0500c30000') + b'COM OK$'
     annotations = 'code 100 10b\ndata 10b 112\nptr 100\n'
 
-    # CLI contract failures explain the missing/inapplicable option before I/O.
+    # CLI contract failures explain an inapplicable option before I/O.
     for options, message in (
-        (['--dialect=com'], b'COM input requires --com-map='),
         (['--com-map='+str(mapping)], b'--com-map is only valid with --dialect=com'),
     ):
         output.write_text('preserve')
         result = subprocess.run([str(exe), *options, str(source), str(output)], capture_output=True)
         assert result.returncode == 1 and message in result.stderr, result
         assert output.read_text() == 'preserve'
+
+    # Discovery uses the normal selected emitter; no companion assembly file.
+    source.write_bytes(binary)
+    draft = work/'draft.asm'
+    result = subprocess.run([str(exe), '--dialect=com', '--emit=asm80', str(source), str(draft)], capture_output=True)
+    assert result.returncode == 2 and draft.exists(), result.stderr
+    assert not list(work.glob("*.80"))
+    draft_map, review = work/'draft.map', draft
+    assert 'code 0100 010b' in draft_map.read_text()
+    assert 'unknown 010b 0112' in draft_map.read_text()
+    assert b'; XLT88 TODO:' in review.read_bytes() and b'LXI may load an address' in review.read_bytes()
+    assert review.read_bytes().endswith(b'\r\n\x1a')
+    before = draft_map.read_bytes(), review.read_bytes()
+    result = subprocess.run([str(exe), '--dialect=com', '--emit=asm80', str(source), str(draft)], capture_output=True)
+    assert result.returncode == 1 and before == (draft_map.read_bytes(), review.read_bytes())
+    result = subprocess.run([str(exe), '--dialect=com', '--com-map='+str(draft_map), str(source), str(draft)], capture_output=True)
+    assert result.returncode == 1 and b'unresolved unknown' in result.stderr
+    # Refining the generated map is sufficient to enter the normal pipeline.
+    draft_map.write_text(draft_map.read_text().replace('unknown', 'data')+'ptr 0100\n')
+    result = subprocess.run([str(exe), '--dialect=com', '--com-map='+str(draft_map), '--emit=asm80', str(source), str(draft)], capture_output=True)
+    assert result.returncode == 0 and b'lxi\td,l010b' in draft.read_bytes(), result.stderr
+
+    # Native choices use the same pipeline too, but remain explicitly drafts.
+    source.write_bytes(binary)
+    for flavor in ('nasm', 'asm86', 'masm3', 'drasm86'):
+        native = work/(flavor+'.a86')
+        result = subprocess.run([str(exe), '--dialect=com', '--target=cpm86',
+                                 '--emit='+flavor, str(source), str(native)], capture_output=True)
+        assert result.returncode == 2, result.stderr
+        raw = native.read_bytes()
+        assert b'XLT88 TODO:' in raw and native.with_suffix('.map').exists()
+        assert (b'bits 16' in raw) == (flavor == 'nasm'), raw[:150]
+        assert not native.with_suffix('.80').exists()
+
+    # Follow both branch paths and calls, but not indirect or invalid entries.
+    for name, data, note in (
+        ('branch', bytes.fromhex('ca0701cd0801c9c9c9'), None),
+        ('indirect', bytes.fromhex('e900'), b'PCHL destination unknown'),
+        ('invalid', bytes.fromhex('dd00'), b'invalid or truncated'),
+        ('overlap', bytes.fromhex('c30101'), b'control flow enters an instruction operand'),
+        ('short', bytes.fromhex('21ff'), b'invalid or truncated'),
+    ):
+        source.write_bytes(data)
+        listing = work/(name+'.asm')
+        result = subprocess.run([str(exe), '--dialect=com', '--emit=asm80', str(source), str(listing)], capture_output=True)
+        assert result.returncode == 2, result.stderr
+        if note:
+            assert note in listing.read_bytes(), listing.read_bytes()
+        else:
+            assert 'code 0100 0109' in listing.with_suffix('.map').read_text()
 
     def run(data=binary, layout=annotations, *options, ok=True):
         source.write_bytes(data)
@@ -36,16 +85,16 @@ with tempfile.TemporaryDirectory() as directory:
             assert output.read_text() == 'preserve'
         return result
 
-    run(binary, annotations, '--emit=8080')
+    run(binary, annotations, '--emit=asm80')
     normalized = output.read_bytes()
     assert b'lxi\td,l010b' in normalized, normalized
     state = work/'names.sym'
-    run(binary, annotations, '--emit=8080', '--state-out='+str(state))
+    run(binary, annotations, '--emit=asm80', '--state-out='+str(state))
     names = json.loads(state.read_text())
     message = next(s for s in names['symbols'] if s['source_address'] == 0x10b)
     message['preferred_name'] = 'message'
     state.write_text(json.dumps(names))
-    run(binary, annotations, '--emit=8080', '--state-in='+str(state))
+    run(binary, annotations, '--emit=asm80', '--state-in='+str(state))
     assert b'lxi\td,message' in output.read_bytes()
     # A changed pointer interpretation changes the state identity.
     run(binary, annotations.replace('ptr 100\n', ''), '--state-in='+str(state), ok=False)
@@ -66,20 +115,20 @@ with tempfile.TemporaryDirectory() as directory:
     expected += high
     count = 0
     for opcode in range(256):
-        run(bytes((opcode, 0, 0)), 'code 100 103\n', '--emit=8080', ok=opcode not in aliases)
+        run(bytes((opcode, 0, 0)), 'code 100 103\n', '--emit=asm80', ok=opcode not in aliases)
         if opcode not in aliases:
             assert re.search(r'l0100:\s+'+expected[opcode]+r'\b', output.read_text()), (opcode, output.read_text())
         count += opcode not in aliases
     assert count == 244
 
     # Annotated pointer words and explicit LXI pointers share normal labels.
-    run(bytes.fromhex('210401e90401'), 'code 100 104\nword 104 106\nptr 100\n', '--emit=8080')
+    run(bytes.fromhex('210401e90401'), 'code 100 104\nword 104 106\nptr 100\n', '--emit=asm80')
     assert b'dw\tl0104' in output.read_bytes()
     # Explicit one-past pointers are useful for stack/buffer limits. Ordinary
     # LXI constants remain numeric even when their value lies inside the image.
-    run(bytes.fromhex('210301'), 'code 100 103\nptr 100', '--emit=8080')
+    run(bytes.fromhex('210301'), 'code 100 103\nptr 100', '--emit=asm80')
     assert b'lxi\th,l0103' in output.read_bytes()
-    run(bytes.fromhex('210301'), 'code 100 103', '--emit=8080')
+    run(bytes.fromhex('210301'), 'code 100 103', '--emit=asm80')
     assert b'lxi\th,259' in output.read_bytes()
 
     for data, layout in [
@@ -98,7 +147,7 @@ with tempfile.TemporaryDirectory() as directory:
         (b'\x00\x00', 'data 100 102\n'),
         (b'\x00\x00', 'code 100 101\nword 101 102\n'),
     ]:
-        run(data, layout, '--emit=8080', ok=False)
+        run(data, layout, '--emit=asm80', ok=False)
 
     run()
     # Map input, including hardlink aliases, must not be replaced by output.

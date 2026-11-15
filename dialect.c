@@ -76,7 +76,7 @@ parse_statement(const char *line, statement_t *stmt, int m80)
 
 	memset(stmt, 0, sizeof(*stmt));
 	/* A colon makes a label explicit, independent of indentation. M80
-	 * additionally accepts known operations at column one. Intel's legacy
+	 * additionally accepts known operations at column one. ASM80's legacy
 	 * column-one label convention is otherwise preserved. */
 	while (space(*p)) ++p;
 	start = p;
@@ -231,7 +231,7 @@ read_source(FILE *in, source_program_t *program, int m80)
 }
 
 static int
-read_intel(FILE *in, source_program_t *program)
+read_asm80(FILE *in, source_program_t *program)
 {
 	return read_source(in, program, 0);
 }
@@ -260,7 +260,7 @@ read_m80(FILE *in, source_program_t *program)
 	return m80_read_file(in, NULL, program);
 }
 
-const dialect_t intel_dialect = { "intel", read_intel };
+const dialect_t asm80_dialect = { "asm80", read_asm80 };
 const dialect_t m80_dialect = { "m80", read_m80 };
 
 void

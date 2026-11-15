@@ -47,7 +47,7 @@ emit_named_8080(const source_program_t *program, const symbol_table_t *symbols, 
 				break;
 			}
 		}
-		/* The Intel reader accepts at most 254 content bytes per line. */
+		/* The ASM80 reader accepts at most 254 content bytes per line. */
 		if (strlen(stmt->label) + (stmt->label[0] && strcmp(stmt->opcode, "equ") ? 1 : 0) +
 		    (stmt->opcode[0] ? 1 + strlen(stmt->opcode) : 0) +
 		    (stmt->first[0] ? 1 + strlen(stmt->first) : 0) +

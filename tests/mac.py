@@ -56,7 +56,7 @@ quotes=''' org 100h
 '''
 with tempfile.TemporaryDirectory() as directory:
     work=Path(directory)
-    def invoke(text,expected=None,emit='8080'):
+    def invoke(text,expected=None,emit='asm80'):
         (work/'input.mac').write_bytes(text if isinstance(text,bytes) else text.encode())
         (work/'output.asm').write_text('preserve')
         result=subprocess.run([str(exe),'--dialect=mac','--emit='+emit,str(work/'input.mac'),str(work/'output.asm')],capture_output=True,text=True)
@@ -93,6 +93,6 @@ with tempfile.TemporaryDirectory() as directory:
                 if target=='cpm86': image=image[384:]
                 assert image[:len(expected)]==expected, (target,flavor,name,image[:len(expected)])
             print(target,flavor,'MAC macros, SET versions, dollar separators and quoted bytes passed',flush=True)
-    result=subprocess.run([str(exe),'--dialect=mac','--emit=8080',str(root/'examples/disk7.mac'),str(work/'disk7.asm')],capture_output=True,text=True)
+    result=subprocess.run([str(exe),'--dialect=mac','--emit=asm80',str(root/'examples/disk7.mac'),str(work/'disk7.asm')],capture_output=True,text=True)
     assert result.returncode==0,result.stderr
 print('Unmodified DISK7 normalization and MAC atomic rejection checks passed')

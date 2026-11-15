@@ -47,13 +47,13 @@ main(void)
 	assert(input && normalized && assembly);
 	fputs(source, input);
 	rewind(input);
-	assert(intel_dialect.read(input, &program));
+	assert(asm80_dialect.read(input, &program));
 	snapshot = malloc(program.count * sizeof(*snapshot));
 	assert(snapshot);
 	memcpy(snapshot, program.records, program.count * sizeof(*snapshot));
 	assert(emit_normalized_8080(&program, normalized, stderr));
 	rewind(normalized);
-	assert(intel_dialect.read(normalized, &reparsed));
+	assert(asm80_dialect.read(normalized, &reparsed));
 	assert(program.count == reparsed.count);
 	for (i = 0; i < program.count; ++i)
 		assert(!memcmp(&program.records[i].statement,

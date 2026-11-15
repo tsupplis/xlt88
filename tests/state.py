@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert assemble(output) == baseline
     text = output.read_text()
     assert 'named_msg' in text and "'msg$'" in text
-    run('--state-in=' + str(state), '--emit=8080')
+    run('--state-in=' + str(state), '--emit=asm80')
     text = output.read_text()
     assert 'named_start:' in text and 'named_msg' in text and "'msg$'" in text
     normalized = root / 'norm.asm'
@@ -56,7 +56,7 @@ with tempfile.TemporaryDirectory() as directory:
     names = json.loads(regstate.read_text())
     names['symbols'][0]['preferred_name'] = 'constant'
     regstate.write_text(json.dumps(names))
-    run('--state-in=' + str(regstate), '--emit=8080', src=registers)
+    run('--state-in=' + str(regstate), '--emit=asm80', src=registers)
     normalized.write_text(output.read_text())
     run(src=normalized)
     assert assemble(output) == register_baseline

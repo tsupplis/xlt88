@@ -73,7 +73,7 @@ saved equ 17
         actual = binary()
         subprocess.run([str(exe),'--target='+target,str(flat),str(output)],check=True)
         assert binary() == actual
-    run(text,'--emit=8080','--state-out='+str(state))
+    run(text,'--emit=asm80','--state-out='+str(state))
     flat.write_text(output.read_text())
     assert '.radix' not in output.read_text().lower()
     subprocess.run([str(exe),str(flat),str(output)],check=True)
@@ -82,7 +82,7 @@ saved equ 17
 
     # Changes in included files and macro expansions persist in source order.
     (work/'base.inc').write_text('.RADIX 8\n')
-    run('INCLUDE base.inc\n db 10\nchange MACRO\n .RADIX 16\n ENDM\n change\n db 10\n end\n','--emit=8080')
+    run('INCLUDE base.inc\n db 10\nchange MACRO\n .RADIX 16\n ENDM\n change\n db 10\n end\n','--emit=asm80')
     assert '8D' in output.read_text() and '16D' in output.read_text()
     # Every supported base, independent of the current base for .RADIX itself.
     for radix in range(2,17):
@@ -92,7 +92,7 @@ saved equ 17
         subprocess.run([str(exe),str(flat),str(output)],check=True)
         assert binary()==actual
     # A number deferred by a macro takes the radix at expansion, not definition.
-    run('show MACRO\n db 10\n ENDM\n.RADIX 16\n show\n.RADIX 10\n show\n end\n','--emit=8080')
+    run('show MACRO\n db 10\n ENDM\n.RADIX 16\n show\n.RADIX 10\n show\n end\n','--emit=asm80')
     assert '16D' in output.read_text() and '\tdb\t10' in output.read_text()
 
     for text,message in [

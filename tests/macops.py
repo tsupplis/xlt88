@@ -85,15 +85,15 @@ choose MACRO arg
         actual = binary()
         subprocess.run([str(exe), '--target='+target, str(flat), str(output)], check=True)
         assert binary() == actual
-    run(text, '--emit=8080')
+    run(text, '--emit=asm80')
     flat.write_text(output.read_text())
     subprocess.run([str(exe), str(flat), str(output)], check=True)
 
-    run("emit MACRO x\n db '&x'\n ENDM\n emit ! \n end\n", '--emit=8080')
+    run("emit MACRO x\n db '&x'\n ENDM\n emit ! \n end\n", '--emit=asm80')
     assert "' '" in output.read_text()
     assert 'reserved' in run('jmp __m&80_1\n', ok=False)
 
-    run("IRPC ch,<!;!,!!>\n db '&ch'\nENDM\n end\n", '--emit=8080')
+    run("IRPC ch,<!;!,!!>\n db '&ch'\nENDM\n end\n", '--emit=asm80')
     assert output.read_text().count('db') == 3
     assert "';'" in output.read_text() and "','" in output.read_text() and "'!'" in output.read_text()
 
@@ -106,7 +106,7 @@ prefix&suffix: nop
  ENDM
  outer mark
  end
-''', '--emit=8080')
+''', '--emit=asm80')
     assert 'mark1' in output.read_text() and 'mark2' in output.read_text()
 
     # Percent is evaluated when a nested call executes, using earlier EQU values.
@@ -119,7 +119,7 @@ later EQU 12
  ENDM
  outer
  end
-''', '--emit=8080')
+''', '--emit=asm80')
     assert "'12'" in output.read_text()
     run('''emit MACRO x
  db '&x'
@@ -127,11 +127,11 @@ later EQU 12
  emit %-1
  emit %65536
  end
-''', '--emit=8080')
+''', '--emit=asm80')
     assert "'65535'" in output.read_text() and "'0'" in output.read_text()
 
     # False branches neither evaluate percent expressions nor validate skipped strings.
-    run('IF 0\n IFIDN broken\n ENDIF\n emit %unknown\nENDIF\n nop\n end\n', '--emit=8080')
+    run('IF 0\n IFIDN broken\n ENDIF\n emit %unknown\nENDIF\n nop\n end\n', '--emit=asm80')
     (work/'ops.inc').write_text('IFIDN <a>,broken\nENDIF\n')
     assert 'ops.inc:1:' in run('INCLUDE ops.inc\n', ok=False)
 

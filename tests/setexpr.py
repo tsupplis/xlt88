@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SET source-order snapshots and Intel/M80 expression precedence."""
+"""SET source-order snapshots and ASM80/M80 expression precedence."""
 from pathlib import Path
 import subprocess
 import tempfile
@@ -57,7 +57,7 @@ A SET 7
         actual = binary()
         subprocess.run([str(exe), '--target='+target, str(flat), str(output)], check=True)
         assert actual == binary()
-    run(text, '--emit=8080', '--state-out='+str(state))
+    run(text, '--emit=asm80', '--state-out='+str(state))
     normalized = output.read_text()
     assert "'count'" in normalized and '\tset\t' not in normalized
     flat.write_text(normalized)
@@ -86,7 +86,7 @@ item: nop
     assert binary() == actual
 
     (work/'step.inc').write_text('count SET count+1\n db count\n')
-    run('count SET 0\n REPT 2\n INCLUDE step.inc\n ENDM\n db count\n end\n', '--emit=8080')
+    run('count SET 0\n REPT 2\n INCLUDE step.inc\n ENDM\n db count\n end\n', '--emit=asm80')
     assert '\tdb\t1' in output.read_text() and output.read_text().count('\tdb\t2') == 2
     (work/'step.inc').write_text('count SET missing\n')
     assert 'step.inc:1:' in run('INCLUDE step.inc\n', ok=False)

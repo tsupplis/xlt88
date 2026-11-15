@@ -68,7 +68,7 @@ negative equ -1
     assert json.loads(state.read_text())['schema_version'] == 2
     # Unknown instruction size must not fabricate downstream offsets.
     source.write_text('start: nop\n mystery\nafter: nop\n end\n')
-    run('--emit=8080', '--state-out=' + str(state))
+    run('--emit=asm80', '--state-out=' + str(state))
     assert json.loads(state.read_text())['symbols'][1]['source_address'] is None
     # Ambiguous aliases require a named branch, rather than a guessed label.
     source.write_text('first:\nsecond: nop\n jmp 100h\n end\n')

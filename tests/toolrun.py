@@ -53,7 +53,7 @@ def runner(work, target):
             result = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
         assert result.returncode in codes, (args, result.stdout, result.stderr)
         return result.stdout
-    def build(name, text, flavor, dialect="intel", patch=None, com_map=None):
+    def build(name, text, flavor, dialect="asm80", patch=None, com_map=None):
         # Never let a failed tool leave a previous executable looking successful.
         for extension in ('.obj','.exe','.com','.cmd','.h86'):
             (work/(name+extension)).unlink(missing_ok=True)

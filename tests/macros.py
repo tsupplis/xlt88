@@ -83,7 +83,7 @@ four:
         actual = binary()
         subprocess.run([str(exe), '--target='+target, str(flat), str(output)], check=True)
         assert binary() == actual
-    run('--emit=8080', '--state-out='+str(state))
+    run('--emit=asm80', '--state-out='+str(state))
     normalized = output.read_text()
     assert '__m80_1' in normalized and '__m80_4' in normalized
     flat.write_text(normalized)
@@ -100,7 +100,7 @@ four:
     (work/'sub'/'defs.inc').write_text('inside MACRO\n INCLUDE value.inc\n ENDM\n')
     (work/'sub'/'value.inc').write_text(' mvi a,6\n')
     source.write_text('INCLUDE sub/defs.inc\n inside\n end\n')
-    run('--emit=8080')
+    run('--emit=asm80')
     assert 'a,6' in output.read_text()
 
     # Expansion still supplies consistent record IDs to native DOS FCB analysis.
@@ -117,13 +117,13 @@ four:
  load 65
  end
 ''')
-    run('--emit=8080')
+    run('--emit=asm80')
     text = output.read_text()
     assert "'v',65" in text and 'v stays comment' in text and 'hidden' not in text
 
     # A skipped definition must not let its internal ELSE affect the caller.
     source.write_text('IF 0\nskipped MACRO\n ELSE\n ENDM\nELSE\n mvi a,1\nENDIF\n end\n')
-    run('--emit=8080')
+    run('--emit=asm80')
     assert 'mvi' in output.read_text()
 
     failures = [

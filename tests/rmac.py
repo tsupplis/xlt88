@@ -78,7 +78,7 @@ start: lxi b,args
     def invoke(text, expected=None):
         input_file.write_text(text)
         output.write_text('preserve')
-        command = [str(exe), '--dialect=rmac', '--emit=8080', str(input_file), str(output)]
+        command = [str(exe), '--dialect=rmac', '--emit=asm80', str(input_file), str(output)]
         result = subprocess.run(command, capture_output=True)
         if expected:
             assert result.returncode and expected.encode() in result.stderr, result.stderr
@@ -90,7 +90,7 @@ start: lxi b,args
     invoke(source)
     normalized = output.read_text()
     assert normalized.index('start:') < normalized.index('finish:') < normalized.index('message:') < normalized.index('words:')
-    # A normalized flat source must remain usable by the common Intel reader.
+    # A normalized flat source must remain usable by the common ASM80 reader.
     result = subprocess.run([str(exe), '--target=cpm86', str(output), str(work / 'again.asm')], capture_output=True)
     assert result.returncode == 0, result.stderr
     invoke(' if 0\n extrn missing\n endif\n nop\n end\n')

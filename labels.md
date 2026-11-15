@@ -4,7 +4,7 @@
 ./xlt88 --state-out=names.sym source.asm output.asm
 # Edit preferred_name only.
 ./xlt88 --state-in=names.sym --state-out=names.sym source.asm output.asm
-./xlt88 --state-in=names.sym --emit=8080 source.asm review.asm
+./xlt88 --state-in=names.sym --emit=asm80 source.asm review.asm
 ```
 
 Version 2 JSON records original/preferred names, source-scoped IDs, definition
