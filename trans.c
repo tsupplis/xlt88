@@ -636,6 +636,42 @@ static void
 service_dispatch(translation_t *ctx)
 {
 	int done = ctx->label_number++;
+	/* The backend alone knows which service bodies have identical contracts.
+	 * A guarded set still checks every candidate and retains the native
+	 * fallback, including its different ES/result behavior. */
+	if (!ctx->fcb_call && ctx->target->shared_bdos &&
+	    ctx->target->shared_bdos(NULL, ctx->bdos_values.values, ctx->bdos_values.count)) {
+		int body = ctx->label_number++, fallback = ctx->label_number++;
+		if (ctx->bdos_values.guarded) {
+			instruction(ctx->out, "pushf", no_operand, no_operand);
+			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+			for (int k = 0; k < ctx->bdos_values.count; ++k) {
+				int last = k + 1 == ctx->bdos_values.count;
+				instruction(ctx->out, "cmp", operand(operand_register, "cl"), value(operand_immediate, ctx->bdos_values.values[k]));
+				emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+				instruction(ctx->out, last ? "jne" : "je", operand(operand_internal_label, "svc"),
+				    value(operand_immediate, last ? fallback : body));
+				emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+			}
+			emit(ctx->out, output_internal_definition, "svc", value(operand_immediate, body), no_operand);
+			instruction(ctx->out, "popf", no_operand, no_operand);
+			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+		}
+		ctx->target->shared_bdos(ctx->out, ctx->bdos_values.values, ctx->bdos_values.count);
+		emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+		if (ctx->bdos_values.guarded) {
+			instruction(ctx->out, "jmp", operand(operand_internal_label, "svc"), value(operand_immediate, done));
+			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+			emit(ctx->out, output_internal_definition, "svc", value(operand_immediate, fallback), no_operand);
+			instruction(ctx->out, "popf", no_operand, no_operand);
+			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+			if (ctx->target->native_bdos) native_fallback(ctx);
+			else ctx->target->exit_program(ctx->out);
+			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
+		}
+		emit(ctx->out, output_internal_definition, "svc", value(operand_immediate, done), no_operand);
+		return;
+	}
 	for (int k = 0; k < ctx->bdos_values.count; ++k) {
 		int next = ctx->label_number++;
 		int last = k + 1 == ctx->bdos_values.count && !ctx->bdos_values.guarded;

@@ -25,6 +25,11 @@ typedef struct backend {
 	/* Optional native fallback: selector is already in the target register.
 	 * No source-contract adaptation or segment preservation is implied. */
 	void (*native_bdos)(const emitter_t *);
+	/* Optional common lowering for a complete candidate set. With NULL out,
+	 * only test eligibility; otherwise emit the same body for every selector.
+	 * The caller retains guards/fallback. The hook must preserve the selector
+	 * and provide the same results/diagnostics as each individual lowering. */
+	int (*shared_bdos)(const emitter_t *, const unsigned char *, size_t count);
 } backend_t;
 
 extern const backend_t msdos_backend;

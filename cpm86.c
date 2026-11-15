@@ -32,6 +32,27 @@ reset_call(const emitter_t *out, long function)
 }
 
 static int
+shared_bdos(const emitter_t *out, const unsigned char *functions, size_t count)
+{
+	if (!count) return 0;
+	for (size_t i = 0; i < count; ++i) {
+		unsigned int f = functions[i];
+		/* Only identical native INT bodies with ES preservation. Reset and
+		 * direct I/O adapt semantics; far pointers need ES and diagnostics. */
+		if (f < 1 || f > 40 || f == 6 || f == 13 || f == 27 || f == 31 ||
+		    f == 38 || f == 39) return 0;
+	}
+	if (!out) return 1;
+	instruction(out, "push", operand(operand_register, "es"), no_operand);
+	emit(out, output_comment, "shared native BDOS lowering; CL selects service", no_operand, no_operand);
+	emit(out, output_line_end, NULL, no_operand, no_operand);
+	native_bdos(out);
+	emit(out, output_line_end, NULL, no_operand, no_operand);
+	instruction(out, "pop", operand(operand_register, "es"), no_operand);
+	return 1;
+}
+
+static int
 bdos(const emitter_t *out, long function, unsigned long site)
 {
 	const char *service;
@@ -212,5 +233,6 @@ const backend_t cpm86_backend = {
 	.bdos = bdos,
 	.exit_program = exit_program,
 	.stack_segment = stack_segment,
-	.native_bdos = native_bdos
+	.native_bdos = native_bdos,
+	.shared_bdos = shared_bdos
 };
