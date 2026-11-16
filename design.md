@@ -24,7 +24,8 @@ is immutable and may be lowered independently for both OS targets.
 | comhint | Bounded literal/register/stack hints; candidate discovery only, never native execution |
 | symbols/state/layout | Shared names, EQU trees, source addresses and validated state |
 | norm8080: emit_named_8080 | Borrow source/symbols; emit normalized CP/M ASM source |
-| osrecog / flags / regions / fcb* | Owned conservative analysis plans; no application-name rules |
+| flow: flow_build | Owned per-record graph; explicit fall-through, call target/continuation, conditional return and unknown edges |
+| osrecog / flags / regions / fcb* | Owned conservative analysis plans; flags consumes flow; no application-name rules |
 | trans: lower_named | Borrow source/symbols/backend; build owned target_program_t |
 | cpm86/msdos/reset/conbuf | Native service ABI and stack/buffer adapters |
 | target/shrink | Copy events/expressions, prove branch bounds, replay via target_write |
@@ -56,6 +57,14 @@ Fixed origins and known source boundaries are preserved; expansion overflow,
 overlap and unknown reordered-region sizes fail. Flag analysis starts live;
 unknown edges remain conservative. FCB storage/field proofs are bounded, not
 whole-program alias analysis. Service selector policy is in [api.md](api.md).
+flow.h distinguishes a call continuation from a resolved return destination.
+Labels do not terminate fall-through; data, unknown syntax and indirect jumps
+are barriers. Return destinations remain unknown until stack/entry ownership
+is proved. flags.c now summarizes stack-neutral, store-free leaf paths at each
+direct call: required inputs = reads OR (continuation needs AND passed flags).
+Conditional returns and direct tail branches participate; nested calls, stack
+changes and unresolved paths retain the old conservative analysis. Shared
+callee output flags are not removed based on one caller's needs.
 
 Review implicit page alignment, low-byte pointer arithmetic, numeric/code
 pointers, inline return-address data, self-modification, SS:SP/DI/EI, native

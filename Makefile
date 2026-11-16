@@ -1,5 +1,5 @@
 PROG =	xlt88
-OBJS = comhint.o comread.o rmac.o conbuf.o storage.o reset.o fcbdef.o fcbaddr.o flags.o mexpr.o macro.o m80.o mac.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o regions.o norm8080.o \
+OBJS = comhint.o comread.o rmac.o conbuf.o storage.o reset.o fcbdef.o fcbaddr.o flags.o flow.o mexpr.o macro.o m80.o mac.o fcb.o xlt88.o dialect.o symbols.o state.o expr.o layout.o regions.o norm8080.o \
 	osrecog.o trans.o emitter.o target.o shrink.o nasm.o asm86.o asmfmt.o masm.o drasm86.o msdos.o cpm86.o
 PYTHON = python3
 
@@ -92,6 +92,7 @@ test: ${PROG} tests/iface tests/expr tests/readers tests/shrink tests/osrecog te
 	${PYTHON} tests/dosnames.py
 	${PYTHON} tests/drives.py
 	${PYTHON} tests/vtlbench.py
+	${PYTHON} tests/xltseq.py
 	${PYTHON} tests/vtlscr.py
 	${PYTHON} tests/wash.py
 	${PYTHON} tests/washfile.py
@@ -157,10 +158,10 @@ tests/osrecog: tests/osrecog.c ${OBJS} osrecog.h
 	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/osrecog.c $(filter-out xlt88.o,${OBJS})
 
 flags.o trans.o: flags.h
-flags.o: dialect.h
+flags.o flow.o: dialect.h flow.h
 
-tests/flags: tests/flags.c flags.o flags.h
-	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/flags.c flags.o
+tests/flags: tests/flags.c flags.o flow.o flags.h flow.h
+	${CC} ${CFLAGS} -I. ${LDFLAGS} -o $@ tests/flags.c flags.o flow.o
 
 fcbaddr.o fcb.o: fcbaddr.h
 fcbaddr.o: dialect.h

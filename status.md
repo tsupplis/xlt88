@@ -67,3 +67,21 @@ The subsequent textual audit accounts for VTL's 117-byte gap, classifies its
 28 AC corrections and inventories WASH/DISK differences; see compare.md.
 One redundant SAHF was removed; focused flag/branch and application checks pass.
 WASH's disabled interrupts remain an explicit native-port review item.
+Equivalent CP/M-86 dispatch bodies now share code: WASH is 1946 instruction
+bytes, down 19, with 3888 loaded bytes. Candidate guards/fallback are retained.
+Backend/service-set/native-call and application checks pass. Caller analysis
+found fall-through entries at cpbd/cphd; return flags remain conservative.
+Flag analysis now consumes flow.c's explicit control-flow graph. Unit and
+execution cases cover shared fall-through entries, conditional returns and
+unknown targets. Return destinations remain unresolved; this structural step
+does not reduce application code sizes or close caller-aware optimization.
+Bounded leaf summaries now refine incoming flags at individual direct calls;
+shared return flags remain conservative. A focused case saves five bytes;
+VTL/WASH/DISK sizes are unchanged. Nested calls, stack changes, stores and
+unresolved paths stay outside the proof.
+This leaf-summary batch passed 70,400 arithmetic and 8,192 AND result/PSW
+cases, shared-callee execution on all eight combinations, sanitizer/unit
+checks and the VTL/WASH/DISK reference suites. The extra CPU matrix was not rerun.
+Sequence comparison now tests native patterns, six fresh AC witnesses, live-A
+PSW saving and BDOS 6/13 differences. Reset/far-pointer/branch suites also pass;
+see compare.md for equivalent, context-dependent and unverified boundaries.

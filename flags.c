@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include "flags.h"
+#include "flow.h"
 
 static int
 listed(const char *op, const char *const *names, size_t count)
@@ -20,52 +21,113 @@ same_name(const char *a, const char *b)
 	return *a == *b;
 }
 
-/* Resolve only unique literal labels. Expressions and indirect destinations
- * remain barriers rather than depending on a particular symbol-table owner. */
-static long
-jump_record(const source_program_t *source, const char *name)
+static const char *const write[] = {
+	"add", "adi", "adc", "aci", "sub", "sui", "sbb", "sbi",
+	"cmp", "cpi", "ana", "ani", "xra", "xri", "ora", "ori", "inr", "dcr"
+};
+static const char *const preserve[] = {
+	"mov", "mvi", "lxi", "lda", "sta", "lhld", "shld", "ldax", "stax",
+	"xchg", "xthl", "nop", "sphl", "cma", "di", "ei", "in", "out", "inx", "dcx", "dad", "rlc", "rrc", "ral", "rar", "stc", "cmc"
+};
+
+typedef struct flag_summary {
+	unsigned char known, read, pass;
+} flag_summary_t;
+
+/* Prove a call's return stack untouched. Memory writes might alias the saved
+ * return address; even balanced PUSH/POP and nested calls are left for a
+ * stronger stack analysis. Multiple labels and direct tail branches are fine. */
+static int
+leaf_step(const statement_t *stmt)
 {
-	long found = -1;
-	for (size_t i = 0; i < source->count; ++i) {
-		const statement_t *stmt = &source->records[i].statement;
-		if (!stmt->label[0] || !same_name(stmt->label, name)) continue;
-		if (found >= 0 || !strcmp(stmt->opcode, "equ")) return -1;
-		found = (long)i;
-	}
-	return found;
+	const char *op = stmt->opcode;
+	if (!strcmp(op, "push") || !strcmp(op, "pop") || !strcmp(op, "xthl") ||
+	    !strcmp(op, "sphl") || !strcmp(op, "sta") || !strcmp(op, "shld") ||
+	    !strcmp(op, "stax")) return 0;
+	if ((!strcmp(op, "mov") || !strcmp(op, "mvi") || !strcmp(op, "inr") ||
+	     !strcmp(op, "dcr")) && same_name(stmt->first, "m")) return 0;
+	if ((!strcmp(op, "lxi") || !strcmp(op, "inx") || !strcmp(op, "dcx")) &&
+	    same_name(stmt->first, "sp")) return 0;
+	return 1;
+}
+
+static unsigned char
+tested_flag(const char *op)
+{
+	const char *condition = op + 1;
+	if (!strcmp(condition, "z") || !strcmp(condition, "nz")) return flag_zero;
+	if (!strcmp(condition, "c") || !strcmp(condition, "nc")) return flag_carry;
+	if (!strcmp(condition, "m") || !strcmp(condition, "p")) return flag_sign;
+	if (!strcmp(condition, "pe") || !strcmp(condition, "po")) return flag_parity;
+	return 0;
+}
+
+/* Monotone summaries describe reads of incoming flags and flags passed back
+ * unchanged. Start fully live; unresolved successors poison the proof. Loops
+ * converge conservatively, without assuming they terminate. */
+static void
+leaf_summaries(const source_program_t *source, const flow_graph_t *graph,
+    flag_summary_t *summary)
+{
+	int changed;
+	for (size_t i = 0; i < source->count; ++i)
+		summary[i] = (flag_summary_t){1, flag_all, flag_all};
+	do {
+		changed = 0;
+		for (size_t i = source->count; i-- > 0;) {
+			const flow_node_t *node = &graph->nodes[i];
+			const statement_t *stmt = &source->records[i].statement;
+			const char *op = stmt->opcode;
+			flag_summary_t value = {0};
+			unsigned char use = 0, kill = 0;
+			if (node->kind == flow_return) value = (flag_summary_t){1, 0, flag_all};
+			else if (node->kind == flow_branch && node->target >= 0) value = summary[node->target];
+			else if (node->kind == flow_next && leaf_step(stmt) && node->next >= 0) value = summary[node->next];
+			if ((node->kind == flow_return || node->kind == flow_branch) && node->conditional) {
+				flag_summary_t skipped = node->next >= 0 ? summary[node->next] : (flag_summary_t){0};
+				value.known &= skipped.known;
+				value.read |= skipped.read;
+				value.pass |= skipped.pass;
+				use = tested_flag(op);
+			}
+			if (listed(op, write, sizeof(write) / sizeof(*write))) kill = flag_all;
+			if (!strcmp(op, "inr") || !strcmp(op, "dcr")) kill &= ~flag_carry;
+			if (!strcmp(op, "adc") || !strcmp(op, "aci") || !strcmp(op, "sbb") || !strcmp(op, "sbi")) use |= flag_carry;
+			if (!strcmp(op, "daa")) { use |= flag_carry | flag_auxiliary; kill = flag_all; }
+			if (!strcmp(op, "dad") || !strcmp(op, "stc") || !strcmp(op, "rlc") || !strcmp(op, "rrc") ||
+			    !strcmp(op, "ral") || !strcmp(op, "rar") || !strcmp(op, "cmc")) kill = flag_carry;
+			if (!strcmp(op, "ral") || !strcmp(op, "rar") || !strcmp(op, "cmc")) use |= flag_carry;
+			value.read = use | (value.read & ~kill);
+			value.pass &= ~kill;
+			if (!value.known) value = (flag_summary_t){0, flag_all, flag_all};
+			if (value.known != summary[i].known || value.read != summary[i].read || value.pass != summary[i].pass) {
+				summary[i] = value;
+				changed = 1;
+			}
+		}
+	} while (changed);
 }
 
 int
 flags_live_plan(const source_program_t *source, unsigned char **after)
 {
-	static const char *const write[] = {
-		"add", "adi", "adc", "aci", "sub", "sui", "sbb", "sbi",
-		"cmp", "cpi", "ana", "ani", "xra", "xri", "ora", "ori", "inr", "dcr"
-	};
-	static const char *const preserve[] = {
-		"mov", "mvi", "lxi", "lda", "sta", "lhld", "shld", "ldax", "stax",
-		"xchg", "xthl", "nop", "sphl", "cma", "di", "ei", "in", "out", "inx", "dcx", "dad", "rlc", "rrc", "ral", "rar", "stc", "cmc"
-	};
-	static const char *const branch[] = {"jmp", "jz", "jnz", "jc", "jnc", "jp", "jm", "jpe", "jpo"};
-	static const char *const calls[] = {"call", "cz", "cnz", "cc", "cnc", "cp", "cm", "cpe", "cpo"};
 	size_t count = source->count;
 	unsigned char *before = malloc(count ? count : 1);
 	unsigned char *result = malloc(count ? count : 1);
-	long *edges = malloc((count ? count : 1) * sizeof(*edges));
+	flag_summary_t *summary = calloc(count ? count : 1, sizeof(*summary));
+	flow_graph_t graph = {0};
 	int changed;
 
 	*after = NULL;
-	if (!before || !result || !edges) {
+	if (!before || !result || !summary || !flow_build(source, &graph)) {
 		free(before);
 		free(result);
-		free(edges);
+		free(summary);
+		flow_destroy(&graph);
 		return 0;
 	}
 	memset(before, flag_all, count);
-	for (size_t i = 0; i < count; ++i)
-		edges[i] = (listed(source->records[i].statement.opcode, branch, sizeof(branch)/sizeof(*branch)) ||
-		    listed(source->records[i].statement.opcode, calls, sizeof(calls)/sizeof(*calls))) ?
-		    jump_record(source, source->records[i].statement.first) : -1;
+	leaf_summaries(source, &graph, summary);
 	/* Start conservatively live. A flag becomes dead only once every
 	 * successor proves it overwritten before observation; loops converge. */
 	do {
@@ -74,19 +136,22 @@ flags_live_plan(const source_program_t *source, unsigned char **after)
 			const source_record_t *record = &source->records[i];
 			const statement_t *stmt = &record->statement;
 			const char *op = stmt->opcode;
-			unsigned char live = i + 1 < count ? before[i + 1] : flag_all;
-			int is_branch = listed(op, branch, sizeof(branch)/sizeof(*branch));
+			const flow_node_t *node = &graph.nodes[i];
+			unsigned char live = node->next >= 0 ? before[node->next] : flag_all;
+			int is_branch = node->kind == flow_branch;
 			if (is_branch) {
-				unsigned char taken = edges[i] >= 0 ? before[edges[i]] : flag_all;
+				unsigned char taken = node->target >= 0 ? before[node->target] : flag_all;
 				live = !strcmp(op, "jmp") ? taken : live | taken;
 			}
 			result[i] = live;
-			if (record->problem) live = flag_all;
-			else if (listed(op, calls, sizeof(calls)/sizeof(*calls))) {
-				/* A direct callee may overwrite flags before reading them. RET
-				 * stays live, so this never assumes preserved return flags.
-				 * Conditional calls must also account for the skipped path. */
-				unsigned char entry = edges[i] >= 0 ? before[edges[i]] : flag_all;
+			if (record->problem || node->kind == flow_barrier) live = flag_all;
+			else if (node->kind == flow_call) {
+				/* A proved leaf uses this call's continuation. Otherwise retain
+				 * the shared-entry plan, whose RET keeps every flag live.
+				 * Conditional calls also account for their skipped path. */
+				unsigned char entry = node->target >= 0 ? before[node->target] : flag_all;
+				if (node->target >= 0 && summary[node->target].known)
+					entry = summary[node->target].read | (live & summary[node->target].pass);
 				live = !strcmp(op, "call") ? entry : live | entry;
 			}
 			else if (!strcmp(op, "inr") || !strcmp(op, "dcr")) live &= flag_carry;
@@ -99,7 +164,7 @@ flags_live_plan(const source_program_t *source, unsigned char **after)
 			else if (!strcmp(op, "pop") && same_name(stmt->first, "psw")) live = 0;
 			else if ((!strcmp(op, "push") || !strcmp(op, "pop")) && !same_name(stmt->first, "psw")) {}
 			else live = flag_all; /* PSW reads, returns and unknown syntax. */
-			if (is_branch || listed(op, calls, sizeof(calls)/sizeof(*calls))) {
+			if (is_branch || node->kind == flow_call) {
 				/* Conditional transfers observe their tested flag even if
 				 * both successors overwrite it immediately. */
 				const char *condition = op + 1;
@@ -112,7 +177,8 @@ flags_live_plan(const source_program_t *source, unsigned char **after)
 		}
 	} while (changed);
 	free(before);
-	free(edges);
+	free(summary);
+	flow_destroy(&graph);
 	*after = result;
 	return 1;
 }

@@ -33,6 +33,45 @@ inspect(void *context, const output_t *event)
 	}
 }
 
+/* Every eligible common body must match the individual backend lowering,
+ * excluding comments. Special services must not enter this equivalence class. */
+static void
+shared_services(void)
+{
+	const unsigned char excluded[] = {0, 6, 13, 27, 31, 38, 39, 41, 255};
+	unsigned char values[] = {2, 0};
+	for (size_t i = 0; i < sizeof(excluded); ++i) {
+		values[1] = excluded[i];
+		assert(!cpm86_backend.shared_bdos(NULL, values, 2));
+	}
+	for (int f = 1; f <= 40; ++f) {
+		target_program_t common = {0}, single = {0};
+		emitter_t a = target_builder(&common), b = target_builder(&single);
+		size_t j = 0;
+		values[1] = (unsigned char)f;
+		if (!cpm86_backend.shared_bdos(NULL, values, 2)) continue;
+		assert(cpm86_backend.shared_bdos(&a, values, 2));
+		assert(cpm86_backend.bdos(&b, f, 0) == bdos_lowered);
+		for (size_t i = 0; i < single.count; ++i) {
+			const output_t *event = &single.events[i];
+			if (event->kind != output_instruction) continue;
+			while (j < common.count && common.events[j].kind != output_instruction) ++j;
+			assert(j < common.count);
+			assert(!strcmp(event->text, common.events[j].text));
+			for (int k = 0; k < 2; ++k) {
+				const operand_t *x = &event->operands[k], *y = &common.events[j].operands[k];
+				assert(x->kind == y->kind && x->value == y->value);
+				assert(x->text && y->text ? !strcmp(x->text, y->text) : x->text == y->text);
+			}
+			++j;
+		}
+		while (j < common.count && common.events[j].kind != output_instruction) ++j;
+		assert(j == common.count);
+		target_destroy(&common);
+		target_destroy(&single);
+	}
+}
+
 int
 main(void)
 {
@@ -44,6 +83,7 @@ main(void)
 	source_record_t *snapshot;
 	size_t count = 0, i;
 	emitter_t observer = { &count, inspect }, nasm = nasm_emitter;
+	shared_services();
 	assert(input && normalized && assembly);
 	fputs(source, input);
 	rewind(input);

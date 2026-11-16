@@ -100,7 +100,7 @@ listings, cross-checked with initialized H86 byte totals; no timing claim is mad
 | Program | Fresh XLT86 instruction bytes | xlt88 instruction bytes | Runtime comparison / adjustments |
 | --- | ---: | ---: | --- |
 | VTL-2 | 1,626 | 1,743 | Console and script transcripts match; no reference port edits |
-| WASH15 | 1,672 | 1,965 | Five scenarios match after XLT86 SS/interrupt and PNAME-access fixes; raw output has two assembly errors |
+| WASH15 | 1,672 | 1,946 | Five scenarios match after XLT86 SS/interrupt and PNAME-access fixes; raw output has two assembly errors |
 | DISK7 | 3,440 | 3,937 | Browsing, free-space and copying match; XLT86 SS setup and five ES reads, xlt88 five ES reads |
 
 VTL-2 has 129 versus 12 bytes of ORG padding: both loaded spans round to 1,936
@@ -121,6 +121,8 @@ and two in DISK7; WASH15 is unchanged. No memory access or register width change
 A subsequent redundant SAHF removal saves one more VTL byte. The
 [textual difference audit](compare.md) accounts for the net byte gap and
 classifies flag, register, OS-adapter and native-port differences in all three.
+Sharing equivalent guarded CP/M-86 service bodies saves 19 WASH bytes while
+retaining the original selector checks and native fallback.
 
 Optimization priorities from the listings:
 1. Investigate flag preservation first: VTL-2 has 32/32 LAHF/SAHF instructions
@@ -139,6 +141,9 @@ A focused benchmark probe now checks `A=10h; SUI 1; PUSH PSW`: fresh XLT86
 expects `0F/06` and xlt88 matches it. This exposes an auxiliary-carry difference
 in that case; it is not a full comparative CPU validation. No optimization has
 been justified merely by XLT86 producing fewer bytes.
+The [executed sequence classification](compare.md) now adds six full-PSW
+witnesses, native register/memory/flag comparisons and fresh BDOS 6/13 probes.
+Run `tests/xltseq.py` with an optional report path; it uses the same XLT86 override.
 
 Reproduce using `tests/vtlbench.py`, `tests/wash.py` and `tests/diskref.py`, each
 with an optional report path. Their shared `tests/xltref.py` runs fresh translation

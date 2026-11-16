@@ -3,6 +3,39 @@ from pathlib import Path
 import tempfile
 from toolrun import runner
 source = ''' org 100h
+ lxi h,1234h
+ mvi a,10h
+ sui 1
+ call pure
+ cpi 15
+ jnz failed
+ mvi a,10h
+ sui 1
+ call pure
+ push psw
+ pop b
+ mov a,c
+ cpi 6
+ jnz failed
+ mov a,b
+ cpi 15
+ jnz failed
+ mov a,l
+ cpi 36h
+ jnz failed
+ mvi a,10h
+ call inner
+ cpi 15
+ jnz failed
+ call outer
+ push psw
+ pop b
+ mov a,c
+ cpi 6
+ jnz failed
+ mov a,b
+ cpi 15
+ jnz failed
  lxi h,8000h
  mvi a,10h
  sui 1
@@ -61,6 +94,14 @@ failed: lxi d,bad
  mvi c,9
  call 5
  jmp 0
+pure: inx h
+ jmp pureend
+pureend: rz
+ ret
+outer: mvi a,10h
+inner: sui 1
+ rnz
+ ret
 good: db 'FLAGS OK$'
 bad: db 'FLAGS FAILED$'
  end

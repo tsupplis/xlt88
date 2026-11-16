@@ -11,7 +11,10 @@ enum {
 /* Return an owned array of live-after masks, indexed by original source
  * record. A clear bit proves that flag unobservable before replacement.
  * The source is borrowed and unchanged. Unknown edges and returns retain
- * all flags. On allocation failure, return zero and set output to NULL.
+ * all flags in shared bodies. Stack-neutral, store-free leaf summaries may
+ * refine incoming flags at an individual direct call using its continuation.
+ * Nested calls and unresolved paths retain the conservative plan.
+ * On allocation failure, return zero and set output to NULL.
  * The caller releases the array with free(). No OS/emitter dependency. */
 int flags_live_plan(const source_program_t *, unsigned char **);
 

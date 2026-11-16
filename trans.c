@@ -629,11 +629,9 @@ native_service(translation_t *ctx, long function)
 	}
 }
 
-/* Proven sets may omit the final comparison. Memory-derived candidates
- * check every arm and use the backend fallback on a mismatch (DOS exits).
- * No candidate is treated as an exhaustive alias proof. Comparisons preserve the native input flags. */
-static void
-service_dispatch(translation_t *ctx)
+/* Share a backend-proven common body without weakening candidate guards. */
+static int
+shared_dispatch(translation_t *ctx)
 {
 	int done = ctx->label_number++;
 	/* The backend alone knows which service bodies have identical contracts.
@@ -670,8 +668,20 @@ service_dispatch(translation_t *ctx)
 			emit(ctx->out, output_line_end, NULL, no_operand, no_operand);
 		}
 		emit(ctx->out, output_internal_definition, "svc", value(operand_immediate, done), no_operand);
-		return;
+		return 1;
 	}
+	return 0;
+}
+
+/* Proven sets may omit the final comparison. Memory-derived candidates
+ * check every arm and use the backend fallback on a mismatch (DOS exits).
+ * No candidate is treated as an exhaustive alias proof. Comparisons preserve the native input flags. */
+static void
+service_dispatch(translation_t *ctx)
+{
+	int done;
+	if (shared_dispatch(ctx)) return;
+	done = ctx->label_number++;
 	for (int k = 0; k < ctx->bdos_values.count; ++k) {
 		int next = ctx->label_number++;
 		int last = k + 1 == ctx->bdos_values.count && !ctx->bdos_values.guarded;
